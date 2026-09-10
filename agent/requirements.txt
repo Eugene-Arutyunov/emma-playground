@@ -1,0 +1,5 @@
+livekit-agents[deepgram,openai,cartesia,silero,turn-detector]~=1.0
+livekit-api~=1.0
+python-dotenv~=1.0
+fastapi~=0.115
+uvicorn~=0.32

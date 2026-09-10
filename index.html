@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <title>Прототип Эммы</title>
+    <meta name="description" content="Прототип продукта Эмма." />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/png" href="images/favicon.png" />
+    <link rel="preload" href="fonts/ProtoGrotesk.woff2" as="font" type="font/woff2" crossorigin />
+    <script>
+      (function () {
+        var theme = localStorage.getItem("ids-theme");
+        if (theme === "dark" || (!theme && matchMedia("(prefers-color-scheme: dark)").matches)) {
+          document.documentElement.classList.add("dark");
+        }
+      })();
+    </script>
+    <link rel="stylesheet" href="css/tokens/palette.css" />
+    <link rel="stylesheet" href="css/tokens/colors.css" />
+    <link rel="stylesheet" href="css/tokens/scales.css" />
+    <link rel="stylesheet" href="css/settings.css" />
+    <link rel="stylesheet" href="css/reset.css" />
+    <link rel="stylesheet" href="css/page-composition/layout.css" />
+    <link rel="stylesheet" href="css/components/ids.css" />
+    <link rel="stylesheet" href="css/components/theme-toggle.css" />
+    <link rel="stylesheet" href="css/project.css" />
+  </head>
+
+  <body class="ids">
+    <header>
+      <button class="ids__theme-toggle" role="switch" aria-checked="false" aria-label="Тёмная тема">
+        <span class="ids__theme-toggle__track"><span class="ids__theme-toggle__thumb"></span></span>
+      </button>
+      <nav class="lang-switcher" aria-label="Язык">
+        <a href="./" aria-current="page">RU</a>
+        <a href="en/">EN</a>
+      </nav>
+    </header>
+
+    <main>
+      <div class="ids__wrapper">
+        <div class="ids__space XL"></div>
+        <div class="ids__text-width">
+          <hgroup>
+            <h1>Прототип</h1>
+          </hgroup>
+          <p>Голосовой прототип Эммы. Нажми кнопку и разреши доступ к микрофону.</p>
+          <div class="ids__space M"></div>
+          <button id="emma-talk-button" class="emma-talk-button">Поговорить с Эммой</button>
+          <p id="emma-status" class="emma-status"></p>
+          <div class="ids__space M"></div>
+          <p><a href="https://novanikita.github.io/Emma/">Вернуться к исследованию</a></p>
+        </div>
+      </div>
+      <div class="ids__space XL"></div>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.22.3/dist/livekit-client.umd.min.js"></script>
+    <script src="js/theme-toggle.js"></script>
+    <script src="js/emma-connect.js"></script>
+  </body>
+</html>

@@ -1,0 +1,117 @@
+.lang-switcher {
+  position: fixed;
+  top: 0.6em;
+  right: 0.6em;
+  z-index: 1;
+  display: flex;
+  gap: 0.5em;
+  font-size: 0.8em;
+}
+
+.lang-switcher a {
+  text-decoration: none;
+  color: var(--ids__text-caption);
+}
+
+.lang-switcher a[aria-current="page"] {
+  color: var(--ids__text);
+}
+
+@media (width < 768px) {
+  .lang-switcher {
+    top: 0.4em;
+    right: calc(var(--ids__density) * 0.6rem);
+  }
+}
+
+.library-table-wrap {
+  overflow-x: auto;
+}
+
+.library-table {
+  width: 100%;
+}
+
+.library-table th,
+.library-table td {
+  padding-right: 0.8em;
+}
+
+.library-table th:first-child,
+.library-table td:first-child {
+  font-variant-numeric: tabular-nums;
+  color: var(--ids__text-caption);
+  white-space: nowrap;
+  width: 2em;
+}
+
+.library-table th:nth-child(3),
+.library-table td:nth-child(3) {
+  width: 4em;
+}
+
+.library-table th:nth-child(4),
+.library-table td:nth-child(4) {
+  width: 10em;
+  font-variant-numeric: tabular-nums;
+}
+
+.library-table td:nth-child(4) {
+  color: var(--ids__text-caption);
+}
+
+.ids .prototype-button {
+  display: block;
+  text-align: center;
+  text-decoration: none;
+  color: var(--ids__color-white);
+  background: var(--ids__link);
+  border-radius: var(--ids__radius-m);
+  padding: calc(var(--ids__density) * 1em) calc(var(--ids__density) * 1.5em);
+  font-size: 1.4em;
+  line-height: var(--ids__density);
+  box-shadow: 0 0.3em 1.2em color-mix(in srgb, var(--ids__link) 40%, transparent);
+  transition:
+    background-color var(--ids__duration-base) var(--ids__easing-base),
+    box-shadow var(--ids__duration-base) var(--ids__easing-base);
+}
+
+.ids .prototype-button:hover {
+  color: var(--ids__color-white);
+  background: var(--ids__hover);
+  box-shadow: 0 0.4em 1.6em color-mix(in srgb, var(--ids__hover) 55%, transparent);
+}
+
+.ids h1.hero {
+  font-size: 7.2em;
+}
+
+.emma-talk-button {
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.6em 1.2em;
+  border-radius: var(--ids__radius-pill);
+  border: var(--ids__border-width-s) solid var(--ids__text);
+  background: transparent;
+  color: var(--ids__text);
+
+  &:hover {
+    background: color-mix(in srgb, var(--ids__text) 8%, transparent);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+}
+
+.emma-status {
+  color: var(--ids__text-caption);
+}
+
+@media (width < 768px) {
+  .ids h1.hero {
+    font-size: 5.2em;
+  }
+}

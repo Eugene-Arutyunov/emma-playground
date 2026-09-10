@@ -1,0 +1,4 @@
+.DS_Store
+agent/.env
+agent/venv/
+agent/__pycache__/
