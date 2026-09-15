@@ -24,51 +24,101 @@
   }
 }
 
-.library-table-wrap {
-  overflow-x: auto;
+/* Страница прототипа: три панели на одном экране, без прокрутки страницы.
+   Прокручиваются только транскрипт и наблюдения внутри своих панелей. */
+
+.emma {
+  box-sizing: border-box;
+  height: 100dvh;
+  padding: var(--ids__spacer-m) calc(var(--ids__density) * 1rem);
+  display: grid;
+  grid-template-columns: minmax(16em, 20em) minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: var(--ids__gap-l);
 }
 
-.library-table {
-  width: 100%;
+.emma__panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-.library-table th,
-.library-table td {
-  padding-right: 0.8em;
+.emma__panel h2 {
+  margin-bottom: calc(var(--ids__density) * 0.4em);
 }
 
-.library-table th:first-child,
-.library-table td:first-child {
-  font-variant-numeric: tabular-nums;
+.emma__caption {
   color: var(--ids__text-caption);
-  white-space: nowrap;
-  width: 2em;
+  margin-bottom: var(--ids__spacer-s);
 }
 
-.library-table th:nth-child(3),
-.library-table td:nth-child(3) {
-  width: 4em;
+.emma__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 0.4em;
 }
 
-.library-table th:nth-child(4),
-.library-table td:nth-child(4) {
-  width: 10em;
-  font-variant-numeric: tabular-nums;
-}
-
-.library-table td:nth-child(4) {
+.emma__placeholder {
   color: var(--ids__text-caption);
 }
 
-.ids .prototype-button {
+/* Настройки */
+
+.emma__settings {
+  gap: calc(var(--ids__density) * 0.5em);
+}
+
+.emma__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25em;
+}
+
+.emma__field--grow {
+  flex: 1;
+  min-height: 0;
+}
+
+.emma__field > span {
+  font-size: 0.8em;
+  color: var(--ids__text-caption);
+}
+
+.emma__field select,
+.emma__field textarea {
+  font: inherit;
+  line-height: var(--ids__density);
+  color: var(--ids__text);
+  background: var(--ids__surface);
+  border: var(--ids__border-width-s) solid var(--ids__border);
+  border-radius: var(--ids__radius-m);
+  padding: 0.45em 0.7em;
+}
+
+.emma__field select:disabled,
+.emma__field textarea:disabled {
+  opacity: 0.6;
+}
+
+.emma__field textarea {
+  flex: 1;
+  min-height: 4em;
+  resize: none;
+}
+
+.ids .emma-talk-button {
   display: block;
+  width: 100%;
+  cursor: pointer;
   text-align: center;
-  text-decoration: none;
   color: var(--ids__color-white);
   background: var(--ids__link);
+  border: none;
   border-radius: var(--ids__radius-m);
-  padding: calc(var(--ids__density) * 1em) calc(var(--ids__density) * 1.5em);
-  font-size: 1.4em;
+  padding: calc(var(--ids__density) * 0.6em) calc(var(--ids__density) * 1em);
+  font: inherit;
+  font-size: 1.1em;
+  font-weight: 600;
   line-height: var(--ids__density);
   box-shadow: 0 0.3em 1.2em color-mix(in srgb, var(--ids__link) 40%, transparent);
   transition:
@@ -76,42 +126,77 @@
     box-shadow var(--ids__duration-base) var(--ids__easing-base);
 }
 
-.ids .prototype-button:hover {
-  color: var(--ids__color-white);
+.ids .emma-talk-button:hover {
   background: var(--ids__hover);
   box-shadow: 0 0.4em 1.6em color-mix(in srgb, var(--ids__hover) 55%, transparent);
 }
 
-.ids h1.hero {
-  font-size: 7.2em;
-}
-
-.emma-talk-button {
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-  padding: 0.6em 1.2em;
-  border-radius: var(--ids__radius-pill);
-  border: var(--ids__border-width-s) solid var(--ids__text);
-  background: transparent;
-  color: var(--ids__text);
-
-  &:hover {
-    background: color-mix(in srgb, var(--ids__text) 8%, transparent);
-  }
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
+.ids .emma-talk-button:disabled {
+  cursor: default;
+  opacity: 0.5;
+  box-shadow: none;
 }
 
 .emma-status {
+  min-height: calc(var(--ids__density) * 1em);
+  font-size: 0.9em;
   color: var(--ids__text-caption);
 }
 
-@media (width < 768px) {
-  .ids h1.hero {
-    font-size: 5.2em;
+.emma__back {
+  font-size: 0.8em;
+}
+
+/* Транскрипт и наблюдения */
+
+.emma__turn,
+.emma__signal,
+.emma__summary {
+  margin-bottom: calc(var(--ids__density) * 0.6em);
+}
+
+.emma__entry-title {
+  font-size: 0.8em;
+  color: var(--ids__text-caption);
+}
+
+.emma__turn--user .emma__entry-title {
+  color: var(--ids__link);
+}
+
+.emma__signal {
+  padding-left: 0.7em;
+  border-left: var(--ids__border-width-m) solid var(--ids__link);
+}
+
+.emma__signal .emma__entry-title {
+  font-size: 1em;
+  font-weight: 600;
+  color: var(--ids__text);
+}
+
+.emma__signal .emma__entry-text {
+  color: var(--ids__text-caption);
+}
+
+.emma__summary {
+  padding: calc(var(--ids__density) * 0.5em) calc(var(--ids__density) * 0.7em);
+  background: var(--ids__surface);
+  border-radius: var(--ids__radius-m);
+}
+
+/* На узких экранах панели встают в колонку — тут прокрутка страницы неизбежна */
+
+@media (width < 900px) {
+  .emma {
+    height: auto;
+    min-height: 100dvh;
+    grid-template-columns: 1fr;
+    padding-top: var(--ids__spacer-l);
+    padding-bottom: var(--ids__spacer-l);
+  }
+
+  .emma__scroll {
+    max-height: 40dvh;
   }
 }

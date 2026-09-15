@@ -2,3 +2,4 @@
 agent/.env
 agent/venv/
 agent/__pycache__/
+agent/transcripts/

@@ -37,22 +37,44 @@
       </nav>
     </header>
 
-    <main>
-      <div class="ids__wrapper">
-        <div class="ids__space XL"></div>
-        <div class="ids__text-width">
-          <hgroup>
-            <h1>Прототип</h1>
-          </hgroup>
-          <p>Голосовой прототип Эммы. Нажми кнопку и разреши доступ к микрофону.</p>
-          <div class="ids__space M"></div>
-          <button id="emma-talk-button" class="emma-talk-button">Поговорить с Эммой</button>
-          <p id="emma-status" class="emma-status"></p>
-          <div class="ids__space M"></div>
-          <p><a href="https://novanikita.github.io/Emma/">Вернуться к исследованию</a></p>
+    <main class="emma">
+      <section class="emma__panel emma__settings" aria-label="Настройки">
+        <div>
+          <h1 class="S">Эмма</h1>
+          <p class="emma__caption">Голосовой прототип</p>
         </div>
-      </div>
-      <div class="ids__space XL"></div>
+
+        <label class="emma__field">
+          <span>Модель</span>
+          <select id="emma-model"></select>
+        </label>
+        <label class="emma__field">
+          <span>Характер</span>
+          <select id="emma-character"></select>
+        </label>
+        <label class="emma__field">
+          <span>Голос</span>
+          <select id="emma-voice"></select>
+        </label>
+        <label class="emma__field emma__field--grow">
+          <span>Уточнение к разговору</span>
+          <textarea id="emma-prompt" placeholder="Например: говори в рифму"></textarea>
+        </label>
+
+        <button id="emma-talk-button" class="emma-talk-button">Поговорить с Эммой</button>
+        <p id="emma-status" class="emma-status" aria-live="polite"></p>
+        <p class="emma__back"><a href="https://novanikita.github.io/Emma/">Библиотека исследования</a></p>
+      </section>
+
+      <section class="emma__panel" aria-label="Разговор">
+        <h2 class="XS">Разговор</h2>
+        <div id="emma-transcript" class="emma__scroll"></div>
+      </section>
+
+      <section class="emma__panel" aria-label="Что Эмма замечает">
+        <h2 class="XS">Что Эмма замечает</h2>
+        <div id="emma-signals" class="emma__scroll"></div>
+      </section>
     </main>
 
     <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.22.3/dist/livekit-client.umd.min.js"></script>
