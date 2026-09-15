@@ -1,6 +1,6 @@
 // Адрес задеплоенного token-сервера (agent/server.py на Railway).
 // Пример: "https://emma-token-production.up.railway.app"
-const EMMA_TOKEN_SERVER_URL = "";
+const EMMA_TOKEN_SERVER_URL = "https://token-production-a25e.up.railway.app";
 
 const EMMA_STRINGS = {
   ru: {
