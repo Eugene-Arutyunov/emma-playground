@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Прототип Эммы</title>
-    <meta name="description" content="Прототип продукта Эмма." />
+    <title>Emma prototype</title>
+    <meta name="description" content="Prototype of the Emma product." />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" type="image/png" href="images/favicon.png" />
     <link rel="preload" href="fonts/ProtoGrotesk.woff2" as="font" type="font/woff2" crossorigin />
@@ -27,53 +27,34 @@
   </head>
 
   <body class="ids">
-    <header>
-      <button class="ids__theme-toggle" role="switch" aria-checked="false" aria-label="Тёмная тема">
-        <span class="ids__theme-toggle__track"><span class="ids__theme-toggle__thumb"></span></span>
-      </button>
-      <nav class="lang-switcher" aria-label="Язык">
-        <a href="./" aria-current="page">RU</a>
-        <a href="en/">EN</a>
-      </nav>
-    </header>
+    <div id="emma-glow" class="emma__glow" aria-hidden="true"></div>
+
+    <button class="ids__theme-toggle" role="switch" aria-checked="false" aria-label="Dark theme">
+      <span class="ids__theme-toggle__track"><span class="ids__theme-toggle__thumb"></span></span>
+    </button>
 
     <main class="emma">
-      <section class="emma__panel emma__settings" aria-label="Настройки">
-        <div>
-          <h1 class="S">Эмма</h1>
-          <p class="emma__caption">Голосовой прототип</p>
-        </div>
+      <section class="emma__settings" aria-label="Settings">
+        <h1 class="S">Emma</h1>
+        <select id="emma-model" class="emma__control" aria-label="Model" required></select>
+        <select id="emma-character" class="emma__control" aria-label="Character" required></select>
+        <select id="emma-voice" class="emma__control" aria-label="Voice" required></select>
+        <textarea
+          id="emma-prompt"
+          class="emma__control emma__prompt"
+          aria-label="Note for this conversation"
+          placeholder="Note for this conversation, e.g. speak in rhymes"
+        ></textarea>
+      </section>
 
-        <label class="emma__field">
-          <span>Модель</span>
-          <select id="emma-model"></select>
-        </label>
-        <label class="emma__field">
-          <span>Характер</span>
-          <select id="emma-character"></select>
-        </label>
-        <label class="emma__field">
-          <span>Голос</span>
-          <select id="emma-voice"></select>
-        </label>
-        <label class="emma__field emma__field--grow">
-          <span>Уточнение к разговору</span>
-          <textarea id="emma-prompt" placeholder="Например: говори в рифму"></textarea>
-        </label>
-
-        <button id="emma-talk-button" class="emma-talk-button">Поговорить с Эммой</button>
+      <section class="emma__center" aria-label="Talk">
+        <button id="emma-talk-button" class="emma-talk-button">Talk to Emma</button>
         <p id="emma-status" class="emma-status" aria-live="polite"></p>
-        <p class="emma__back"><a href="https://novanikita.github.io/Emma/">Библиотека исследования</a></p>
       </section>
 
-      <section class="emma__panel" aria-label="Разговор">
-        <h2 class="XS">Разговор</h2>
-        <div id="emma-transcript" class="emma__scroll"></div>
-      </section>
-
-      <section class="emma__panel" aria-label="Что Эмма замечает">
-        <h2 class="XS">Что Эмма замечает</h2>
-        <div id="emma-signals" class="emma__scroll"></div>
+      <section class="emma__side">
+        <div id="emma-signals" class="emma__scroll" aria-label="What Emma notices"></div>
+        <div id="emma-transcript" class="emma__scroll emma__transcript" aria-label="Conversation"></div>
       </section>
     </main>
 

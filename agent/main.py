@@ -39,41 +39,21 @@ TOPIC_SIGNALS = "emma.signals"
 TOPIC_SUMMARY = "emma.summary"
 TOPIC_CONTROL = "emma.control"
 
-GREETING = {
-    "ru": "Поздоровайся одной короткой фразой и спроси, о чём собеседник хочет поговорить.",
-    "en": "Say hello in one short sentence and ask what the person would like to talk about.",
-}
+GREETING = "Say hello in one short sentence and ask what the person would like to talk about."
 
-REFLECTION_INSTRUCTIONS = {
-    "ru": """Ты — второй, наблюдающий канал голосового собеседника Эммы. В разговоре
-ты не участвуешь. Твоя задача — замечать в последних репликах собеседника сигналы:
-эмоциональное состояние, противоречие с тем, что он говорил раньше, невысказанный
-вопрос, смену темы, усталость, сомнение, что человек ходит кругами.
-
-Верни JSON-массив из 0–2 объектов вида {"signal": "<2–4 слова>", "note": "<одно
-предложение>"}. Если ничего существенного нет — верни []. Только JSON, без пояснений.""",
-    "en": """You are the second, observing channel of the voice companion Emma. You do
+REFLECTION_INSTRUCTIONS = """You are the second, observing channel of the voice companion Emma. You do
 not take part in the conversation. Your job is to notice signals in the person's
 latest turns: emotional state, a contradiction with what they said earlier, an
 unasked question, a change of subject, fatigue, doubt, going in circles.
 
 Return a JSON array of 0–2 objects like {"signal": "<2–4 words>", "note": "<one
-sentence>"}. If nothing notable — return []. JSON only, no commentary.""",
-}
+sentence>"}, written in English. If nothing notable — return []. JSON only, no commentary."""
 
-SUMMARY_INSTRUCTIONS = {
-    "ru": """Разговор закончился. Напиши для собеседника короткий итог от лица Эммы:
-о чём говорили, к чему пришли, что осталось открытым. 3–5 предложений, без списков,
-без вступления. Обращайся к собеседнику на «ты».""",
-    "en": """The conversation is over. Write a short wrap-up for the person in Emma's
-voice: what you talked about, where you landed, what is still open. 3–5 sentences,
-no lists, no preamble.""",
-}
+SUMMARY_INSTRUCTIONS = """The conversation is over. Write a short wrap-up for the person in Emma's
+voice, in English: what you talked about, where you landed, what is still open.
+3–5 sentences, no lists, no preamble."""
 
-SPEAKER = {
-    "ru": {"user": "Собеседник", "assistant": "Эмма"},
-    "en": {"user": "Person", "assistant": "Emma"},
-}
+SPEAKER = {"user": "Person", "assistant": "Emma"}
 
 
 @dataclass
@@ -82,7 +62,6 @@ class SessionConfig:
     character: str
     voice: str
     prompt: str
-    lang: str
 
     @classmethod
     def from_attributes(cls, attrs: Mapping[str, str]) -> "SessionConfig":
@@ -91,7 +70,6 @@ class SessionConfig:
             character=attrs.get("emma.character") or DEFAULT_CHARACTER,
             voice=attrs.get("emma.voice") or DEFAULT_VOICE,
             prompt=(attrs.get("emma.prompt") or "").strip(),
-            lang="en" if attrs.get("emma.lang") == "en" else "ru",
         )
 
 
@@ -99,7 +77,7 @@ def build_instructions(cfg: SessionConfig) -> str:
     character = CHARACTERS.get(cfg.character, CHARACTERS[DEFAULT_CHARACTER])
     instructions = character["instructions"]
     if cfg.prompt:
-        instructions += "\n\nДополнительное пожелание собеседника к этому разговору: " + cfg.prompt
+        instructions += "\n\nThe person's additional request for this conversation: " + cfg.prompt
     return instructions
 
 
@@ -156,9 +134,8 @@ class Conversation:
             if item.type == "message" and item.role in ("user", "assistant")
         ]
 
-    def as_text(self, lang: str) -> str:
-        names = SPEAKER[lang]
-        return "\n".join(f"{names[t['role']]}: {t['text']}" for t in self.turns() if t["text"])
+    def as_text(self) -> str:
+        return "\n".join(f"{SPEAKER[t['role']]}: {t['text']}" for t in self.turns() if t["text"])
 
     def save(self) -> None:
         if self._saved:
@@ -189,11 +166,10 @@ class Reflector:
     """Второй канал: после каждой реплики собеседника смотрит на последние
     ходы разговора и отправляет на страницу 0–2 наблюдения."""
 
-    def __init__(self, room: rtc.Room, conversation: Conversation, model: llm.LLM, lang: str) -> None:
+    def __init__(self, room: rtc.Room, conversation: Conversation, model: llm.LLM) -> None:
         self._room = room
         self._conversation = conversation
         self._model = model
-        self._lang = lang
         self._busy = False
 
     async def observe(self) -> None:
@@ -204,9 +180,8 @@ class Reflector:
             turns = self._conversation.turns()[-10:]
             if not any(t["role"] == "user" for t in turns):
                 return
-            names = SPEAKER[self._lang]
-            text = "\n".join(f"{names[t['role']]}: {t['text']}" for t in turns if t["text"])
-            raw = await complete(self._model, REFLECTION_INSTRUCTIONS[self._lang], text)
+            text = "\n".join(f"{SPEAKER[t['role']]}: {t['text']}" for t in turns if t["text"])
+            raw = await complete(self._model, REFLECTION_INSTRUCTIONS, text)
             for signal in parse_signals(raw)[:2]:
                 signal["at"] = time.time()
                 self._conversation.signals.append(signal)
@@ -235,7 +210,7 @@ async def entrypoint(ctx: JobContext) -> None:
     cfg = SessionConfig.from_attributes(participant.attributes)
     logger.info("session config: %s", cfg)
 
-    tts = cartesia.TTS(voice=cfg.voice, language=cfg.lang)
+    tts = cartesia.TTS(voice=cfg.voice, language="en")
 
     # Известный баг livekit-agents: первая отправка текста в TTS-стрим иногда
     # проигрывает гонку с установкой websocket-соединения и падает с
@@ -259,7 +234,7 @@ async def entrypoint(ctx: JobContext) -> None:
     )
 
     conversation = Conversation(ctx.room.name, cfg, session)
-    reflector = Reflector(ctx.room, conversation, openrouter_llm(REFLECTION_MODEL), cfg.lang)
+    reflector = Reflector(ctx.room, conversation, openrouter_llm(REFLECTION_MODEL))
 
     @session.on("conversation_item_added")
     def _on_item(ev: ConversationItemAddedEvent) -> None:
@@ -271,9 +246,7 @@ async def entrypoint(ctx: JobContext) -> None:
             return
         conversation.summary = ""
         try:
-            conversation.summary = await complete(
-                main_llm, SUMMARY_INSTRUCTIONS[cfg.lang], conversation.as_text(cfg.lang)
-            )
+            conversation.summary = await complete(main_llm, SUMMARY_INSTRUCTIONS, conversation.as_text())
         except Exception:
             logger.exception("summary failed")
         await ctx.room.local_participant.send_text(conversation.summary, topic=TOPIC_SUMMARY)
@@ -295,7 +268,7 @@ async def entrypoint(ctx: JobContext) -> None:
     ctx.add_shutdown_callback(save_on_shutdown)
 
     await session.start(agent=Emma(build_instructions(cfg)), room=ctx.room)
-    session.generate_reply(instructions=GREETING[cfg.lang])
+    session.generate_reply(instructions=GREETING)
 
 
 if __name__ == "__main__":

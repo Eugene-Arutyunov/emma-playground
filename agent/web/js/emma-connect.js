@@ -1,38 +1,17 @@
-const EMMA_STRINGS = {
-  ru: {
-    idle: "",
-    connecting: "Соединяюсь…",
-    connected: "Эмма слушает. Говори.",
-    summarizing: "Эмма подводит итог…",
-    error: "Не получилось подключиться. ",
-    wrongCode: "Неверный код доступа.",
-    askCode: "Код доступа",
-    catalogError: "Сервер недоступен, попробуй обновить страницу.",
-    disconnect: "Закончить разговор",
-    talk: "Поговорить с Эммой",
-    you: "Ты",
-    emma: "Эмма",
-    summary: "Итог",
-    transcriptPlaceholder: "Здесь появится текст разговора.",
-    signalsPlaceholder: "Наблюдения второго канала появятся во время разговора.",
-  },
-  en: {
-    idle: "",
-    connecting: "Connecting…",
-    connected: "Emma is listening. Go ahead.",
-    summarizing: "Emma is wrapping up…",
-    error: "Couldn't connect. ",
-    wrongCode: "Wrong access code.",
-    askCode: "Access code",
-    catalogError: "The server is unavailable, try reloading the page.",
-    disconnect: "End conversation",
-    talk: "Talk to Emma",
-    you: "You",
-    emma: "Emma",
-    summary: "Wrap-up",
-    transcriptPlaceholder: "The conversation transcript will appear here.",
-    signalsPlaceholder: "Observations from the second channel will appear during the conversation.",
-  },
+const t = {
+  idle: "",
+  connecting: "Connecting…",
+  connected: "Emma is listening. Go ahead.",
+  summarizing: "Emma is wrapping up…",
+  error: "Couldn't connect. ",
+  wrongCode: "Wrong access code.",
+  askCode: "Access code",
+  catalogError: "The server is unavailable, try reloading the page.",
+  disconnect: "End conversation",
+  talk: "Talk to Emma",
+  you: "You",
+  emma: "Emma",
+  summary: "Wrap-up",
 };
 
 const STORAGE_KEYS = { code: "emma-access-code", settings: "emma-settings" };
@@ -45,6 +24,10 @@ const TOPICS = {
 };
 
 const SUMMARY_TIMEOUT_MS = 20000;
+
+// Состояние агента (listening / thinking / speaking), которое LiveKit Agents
+// публикует в атрибутах участника.
+const AGENT_STATE_ATTRIBUTE = "lk.agent.state";
 
 (function () {
   const $ = (id) => document.getElementById(id);
@@ -60,9 +43,6 @@ const SUMMARY_TIMEOUT_MS = 20000;
   };
   if (Object.values(els).some((el) => !el)) return;
 
-  const lang = document.documentElement.lang === "en" ? "en" : "ru";
-  const t = EMMA_STRINGS[lang];
-
   let room = null;
   let ending = false;
   let summaryReceived = null;
@@ -72,6 +52,124 @@ const SUMMARY_TIMEOUT_MS = 20000;
   function setStatus(text) {
     els.status.textContent = text;
   }
+
+  // --- свечение активности Эммы ---------------------------------------------
+  //
+  // Каждый кадр меряем громкость голоса Эммы и микрофона собеседника и задаём
+  // по ним --emma-glow (0…1): свечение разгорается быстро, гаснет медленно,
+  // почти исчезает, когда говорит собеседник, и слегка пульсирует, пока Эмма
+  // думает. Громкость — из Web Audio; если браузер не отдаёт звук звонка в
+  // анализатор (бывает в Safari), выручает audioLevel участника от LiveKit.
+
+  const glow = (function () {
+    const el = $("emma-glow");
+    const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+    const IDLE = 0.12;
+    const buffer = new Float32Array(512);
+
+    let audioContext = null;
+    let emma = null;
+    let user = null;
+    let active = false;
+    let agentState = "";
+    let frame = 0;
+    let level = 0;
+    let emmaLevel = 0;
+    let userLevel = 0;
+
+    // Звук должен запускаться прямо в обработчике клика, иначе Safari оставит
+    // AudioContext приостановленным.
+    function prepare() {
+      if (!audioContext || audioContext.state === "closed") {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        audioContext = AudioContextClass ? new AudioContextClass() : null;
+      }
+      if (audioContext && audioContext.state === "suspended") audioContext.resume();
+    }
+
+    function watch(mediaStreamTrack, participant) {
+      const source = { participant, analyser: null };
+      if (audioContext && mediaStreamTrack) {
+        try {
+          source.analyser = audioContext.createAnalyser();
+          source.analyser.fftSize = buffer.length;
+          audioContext.createMediaStreamSource(new MediaStream([mediaStreamTrack])).connect(source.analyser);
+        } catch (err) {
+          console.warn("glow: no audio analyser, falling back to LiveKit levels", err);
+          source.analyser = null;
+        }
+      }
+      return source;
+    }
+
+    function loudness(source) {
+      if (!source) return 0;
+      let fromAnalyser = 0;
+      if (source.analyser) {
+        source.analyser.getFloatTimeDomainData(buffer);
+        let sum = 0;
+        for (const sample of buffer) sum += sample * sample;
+        fromAnalyser = (Math.sqrt(sum / buffer.length) - 0.01) / 0.12;
+      }
+      const fromLiveKit = source.participant ? source.participant.audioLevel || 0 : 0;
+      return Math.min(1, Math.max(0, fromAnalyser, fromLiveKit));
+    }
+
+    function follow(current, target, attack, release) {
+      return current + (target - current) * (target > current ? attack : release);
+    }
+
+    function tick(now) {
+      let target = 0;
+      if (active) {
+        if (reducedMotion.matches) {
+          target = 0.3;
+        } else {
+          emmaLevel = follow(emmaLevel, loudness(emma), 0.35, 0.06);
+          userLevel = follow(userLevel, loudness(user), 0.4, 0.05);
+          const idle = agentState === "thinking" ? IDLE + 0.08 * (1 + Math.sin(now / 350)) : IDLE;
+          target = Math.max(idle, emmaLevel) * (1 - 0.8 * userLevel);
+        }
+      }
+      level = follow(level, target, 0.15, 0.04);
+      el.style.setProperty("--emma-glow", level.toFixed(3));
+
+      if (active || level > 0.002) {
+        frame = requestAnimationFrame(tick);
+      } else {
+        frame = 0;
+        el.style.setProperty("--emma-glow", "0");
+      }
+    }
+
+    function run() {
+      if (!frame) frame = requestAnimationFrame(tick);
+    }
+
+    return {
+      prepare,
+      watchEmma(mediaStreamTrack, participant) {
+        emma = watch(mediaStreamTrack, participant);
+      },
+      watchUser(mediaStreamTrack, participant) {
+        user = watch(mediaStreamTrack, participant);
+      },
+      setAgentState(state) {
+        agentState = state || "";
+      },
+      start() {
+        active = true;
+        run();
+      },
+      stop() {
+        active = false;
+        emma = null;
+        user = null;
+        agentState = "";
+        run();
+      },
+    };
+  })();
 
   // --- настройки сессии -----------------------------------------------------
 
@@ -90,11 +188,13 @@ const SUMMARY_TIMEOUT_MS = 20000;
     } catch (_) {}
   }
 
+  // Пока в списке ничего не выбрано, поле не отправляется — сервер подставит
+  // значение по умолчанию.
   function currentSettings() {
     return {
-      model: els.model.value,
-      character: els.character.value,
-      voice: els.voice.value,
+      model: els.model.value || undefined,
+      character: els.character.value || undefined,
+      voice: els.voice.value || undefined,
       prompt: els.prompt.value.trim(),
     };
   }
@@ -111,12 +211,19 @@ const SUMMARY_TIMEOUT_MS = 20000;
     }
   }
 
+  // Название списка (aria-label) показывается внутри него как пункт по умолчанию.
   function fillSelect(select, items, selected) {
     select.innerHTML = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = select.getAttribute("aria-label");
+    placeholder.disabled = true;
+    placeholder.selected = true;
+    select.appendChild(placeholder);
     for (const item of items) {
       const option = document.createElement("option");
       option.value = item.id;
-      option.textContent = typeof item.label === "string" ? item.label : item.label[lang];
+      option.textContent = item.label;
       select.appendChild(option);
     }
     if (selected && items.some((item) => item.id === selected)) select.value = selected;
@@ -145,25 +252,11 @@ const SUMMARY_TIMEOUT_MS = 20000;
 
   // --- панели ---------------------------------------------------------------
 
-  function showPlaceholder(container, text) {
-    container.innerHTML = "";
-    const p = document.createElement("p");
-    p.className = "emma__placeholder";
-    p.textContent = text;
-    container.appendChild(p);
-  }
-
-  function clearPlaceholder(container) {
-    const p = container.querySelector(".emma__placeholder");
-    if (p) p.remove();
-  }
-
   function scrollToBottom(container) {
     container.scrollTop = container.scrollHeight;
   }
 
   function addEntry(container, className, title, text) {
-    clearPlaceholder(container);
     const entry = document.createElement("div");
     entry.className = className;
     const head = document.createElement("div");
@@ -190,8 +283,8 @@ const SUMMARY_TIMEOUT_MS = 20000;
 
   function resetPanels() {
     segments.clear();
-    showPlaceholder(els.transcript, t.transcriptPlaceholder);
-    showPlaceholder(els.signals, t.signalsPlaceholder);
+    els.transcript.innerHTML = "";
+    els.signals.innerHTML = "";
   }
 
   // --- текстовые потоки от воркера -----------------------------------------
@@ -246,7 +339,7 @@ const SUMMARY_TIMEOUT_MS = 20000;
       const res = await fetch("/token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ access_code: accessCode, lang, ...currentSettings() }),
+        body: JSON.stringify({ access_code: accessCode, ...currentSettings() }),
       });
       if (res.status === 403) {
         writeStored(STORAGE_KEYS.code, null);
@@ -257,13 +350,18 @@ const SUMMARY_TIMEOUT_MS = 20000;
 
       room = new LivekitClient.Room();
 
-      room.on(LivekitClient.RoomEvent.TrackSubscribed, (track) => {
+      room.on(LivekitClient.RoomEvent.TrackSubscribed, (track, publication, participant) => {
         if (track.kind === LivekitClient.Track.Kind.Audio) {
           const el = track.attach();
           el.autoplay = true;
           document.body.appendChild(el);
           audioElements.push(el);
+          glow.watchEmma(track.mediaStreamTrack, participant);
+          glow.setAgentState(participant.attributes[AGENT_STATE_ATTRIBUTE]);
         }
+      });
+      room.on(LivekitClient.RoomEvent.ParticipantAttributesChanged, (changed) => {
+        if (AGENT_STATE_ATTRIBUTE in changed) glow.setAgentState(changed[AGENT_STATE_ATTRIBUTE]);
       });
       room.on(LivekitClient.RoomEvent.Disconnected, onDisconnected);
       room.registerTextStreamHandler(TOPICS.transcription, onTranscription);
@@ -271,7 +369,9 @@ const SUMMARY_TIMEOUT_MS = 20000;
       room.registerTextStreamHandler(TOPICS.summary, onSummary);
 
       await room.connect(url, token);
-      await room.localParticipant.setMicrophoneEnabled(true);
+      const microphone = await room.localParticipant.setMicrophoneEnabled(true);
+      glow.watchUser(microphone && microphone.track && microphone.track.mediaStreamTrack, room.localParticipant);
+      glow.start();
 
       resetPanels();
       setStatus(t.connected);
@@ -282,6 +382,7 @@ const SUMMARY_TIMEOUT_MS = 20000;
       setStatus(t.error + err.message);
       els.button.disabled = false;
       setControlsDisabled(false);
+      glow.stop();
       room = null;
     }
   }
@@ -306,6 +407,7 @@ const SUMMARY_TIMEOUT_MS = 20000;
   }
 
   function onDisconnected() {
+    glow.stop();
     room = null;
     ending = false;
     for (const el of audioElements.splice(0)) el.remove();
@@ -316,8 +418,12 @@ const SUMMARY_TIMEOUT_MS = 20000;
   }
 
   els.button.addEventListener("click", () => {
-    if (room) endConversation();
-    else connect();
+    if (room) {
+      endConversation();
+    } else {
+      glow.prepare();
+      connect();
+    }
   });
 
   for (const el of [els.model, els.character, els.voice, els.prompt]) {

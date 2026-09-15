@@ -43,7 +43,6 @@ class TokenRequest(BaseModel):
     character: str = DEFAULT_CHARACTER
     voice: str = DEFAULT_VOICE
     prompt: str = Field(default="", max_length=PROMPT_MAX_LENGTH)
-    lang: str = "ru"
 
 
 @app.get("/catalog")
@@ -56,15 +55,13 @@ async def create_token(body: TokenRequest):
     """Выдаёт браузеру одноразовую комнату + токен. Настройки сессии уезжают
     в атрибуты участника: воркер (main.py) читает их при входе в комнату."""
     if not secrets.compare_digest(body.access_code, ACCESS_CODE):
-        raise HTTPException(403, "Неверный код доступа")
+        raise HTTPException(403, "Wrong access code")
     if body.model not in MODEL_IDS:
-        raise HTTPException(400, "Неизвестная модель")
+        raise HTTPException(400, "Unknown model")
     if body.character not in CHARACTERS:
-        raise HTTPException(400, "Неизвестный характер")
+        raise HTTPException(400, "Unknown character")
     if body.voice not in VOICE_IDS:
-        raise HTTPException(400, "Неизвестный голос")
-    if body.lang not in ("ru", "en"):
-        raise HTTPException(400, "Неизвестный язык")
+        raise HTTPException(400, "Unknown voice")
 
     room_name = f"emma-{secrets.token_hex(6)}"
     identity = f"user-{secrets.token_hex(4)}"
@@ -80,7 +77,6 @@ async def create_token(body: TokenRequest):
                 "emma.character": body.character,
                 "emma.voice": body.voice,
                 "emma.prompt": body.prompt.strip(),
-                "emma.lang": body.lang,
             }
         )
         .to_jwt()
