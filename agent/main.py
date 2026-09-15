@@ -14,6 +14,7 @@ from livekit.agents import (
     Agent,
     AgentSession,
     JobContext,
+    JobExecutorType,
     JobProcess,
     TurnHandlingOptions,
     WorkerOptions,
@@ -280,8 +281,19 @@ if __name__ == "__main__":
     # комнату. Работает и с Agents Playground, и с нашим token-сервером
     # без явного вызова dispatch API.
     #
+    # Разговоры идут в потоках одного процесса, а не в отдельных процессах:
+    # по умолчанию воркер держит до 4 прогретых процессов по ~260 МБ каждый
+    # (~1,2 ГБ ещё до первого разговора), и Railway убивал контейнер по памяти
+    # (exit code -9). В потоках весь воркер занимает ~400 МБ. Для командного
+    # прототипа с редкими параллельными разговорами этого достаточно.
     # spawn вместо linux-овского forkserver: forkserver заранее грузит в память
     # локальные модели livekit-local-inference, которые нам не нужны.
     cli.run_app(
-        WorkerOptions(entrypoint_fnc=entrypoint, prewarm_fnc=prewarm, multiprocessing_context="spawn")
+        WorkerOptions(
+            entrypoint_fnc=entrypoint,
+            prewarm_fnc=prewarm,
+            job_executor_type=JobExecutorType.THREAD,
+            num_idle_processes=1,
+            multiprocessing_context="spawn",
+        )
     )
