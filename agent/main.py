@@ -18,11 +18,11 @@ from livekit.agents import (
     TurnHandlingOptions,
     WorkerOptions,
     cli,
+    inference,
     llm,
 )
 from livekit.agents.voice.events import ConversationItemAddedEvent
 from livekit.plugins import cartesia, deepgram, openai, silero
-from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 from catalog import CHARACTERS, DEFAULT_CHARACTER, DEFAULT_MODEL, DEFAULT_VOICE
 
@@ -228,9 +228,13 @@ async def entrypoint(ctx: JobContext) -> None:
         llm=main_llm,
         tts=tts,
         vad=ctx.proc.userdata["vad"],
-        # Турн-детектор создаётся только здесь: в prewarm ему не хватает
-        # контекста задачи, и весь процесс падает с "no job context found".
-        turn_handling=TurnHandlingOptions(turn_detection=MultilingualModel()),
+        # Конец реплики определяет облачная модель LiveKit Inference (ключи те же,
+        # что у LiveKit). Процесс с локальной моделью на Railway падал при старте
+        # воркера ("worker failed"); local_fallback=False не даёт подгрузить её
+        # даже при сбое облака (тогда реплика завершается по паузе).
+        turn_handling=TurnHandlingOptions(
+            turn_detection=inference.TurnDetector(version="v1", local_fallback=False)
+        ),
     )
 
     conversation = Conversation(ctx.room.name, cfg, session)
@@ -275,4 +279,9 @@ if __name__ == "__main__":
     # Без agent_name — implicit dispatch: воркер сам заходит в любую новую
     # комнату. Работает и с Agents Playground, и с нашим token-сервером
     # без явного вызова dispatch API.
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, prewarm_fnc=prewarm))
+    #
+    # spawn вместо linux-овского forkserver: forkserver заранее грузит в память
+    # локальные модели livekit-local-inference, которые нам не нужны.
+    cli.run_app(
+        WorkerOptions(entrypoint_fnc=entrypoint, prewarm_fnc=prewarm, multiprocessing_context="spawn")
+    )
