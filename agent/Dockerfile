@@ -15,5 +15,5 @@ COPY . .
 RUN python main.py download-files
 
 # Токен-сервер запускается из этого же образа, у него в Railway
-# переопределена команда старта: uvicorn server:app --host 0.0.0.0 --port $PORT
+# переопределена команда старта: uvicorn server:app --host 0.0.0.0 --port 8080
 CMD ["python", "main.py", "start"]

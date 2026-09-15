@@ -53,29 +53,28 @@ python main.py dev
 Воркер подключится к LiveKit Cloud проекту и будет ждать участников в комнате.
 Оставь это окно терминала открытым.
 
-## 4. Запусти token-сервер (для своей страницы)
+## 4. Запусти token-сервер (он же отдаёт страницу)
 
 В отдельном терминале, тоже из `agent/` с активным venv:
 
 ```
-uvicorn server:app --reload
+uvicorn server:app --reload --port 8080
 ```
 
-Он отдаёт браузеру список моделей, характеров и голосов (`/catalog`) и выдаёт
-одноразовую комнату + токен (`/token`). В `.env` нужен `EMMA_ACCESS_CODE` —
-общий код доступа для команды, страница спросит его при первом нажатии.
-Если страница открыта не с `http://localhost:8080`, добавь её адрес в
-`ALLOWED_ORIGINS` в `server.py` (CORS).
+Один процесс и отдаёт страницу прототипа (`web/`), и обслуживает её API:
+список моделей, характеров и голосов (`/catalog`) и одноразовую комнату +
+токен (`/token`). Страница и API на одном домене, поэтому адрес сервера нигде
+прописывать не нужно и CORS не настраивается. В `.env` нужен
+`EMMA_ACCESS_CODE` — общий код доступа для команды, страница спросит его при
+первом нажатии.
 
 ## 5. Поговори с Эммой
 
 Два варианта:
 
-**Своя страница** (`../index.html` и `../en/index.html` в корне репозитория) —
-подними её статическим сервером на порту 8080 (`python -m http.server 8080`
-из корня репозитория; порт 8000 занят token-сервером), впиши адрес
-token-сервера в `EMMA_TOKEN_SERVER_URL` в `../js/emma-connect.js`, выбери
-модель, характер и голос, нажми «Поговорить с Эммой».
+**Своя страница** — открой http://localhost:8080 (английская версия —
+http://localhost:8080/en/), выбери модель, характер и голос, нажми
+«Поговорить с Эммой». Файлы страницы лежат в `web/`.
 
 Что происходит во время разговора: транскрипт речи приходит на страницу
 штатным потоком LiveKit (`lk.transcription`); второй канал (`Reflector` в
@@ -94,7 +93,8 @@ token-сервера в `EMMA_TOKEN_SERVER_URL` в `../js/emma-connect.js`, вы
 ## 6. Деплой на Railway (чтобы ссылка работала без терминала)
 
 Оба сервиса собираются из одного `agent/Dockerfile`, различаются только
-командой старта.
+командой старта. Сервис `token` одновременно отдаёт страницу прототипа, так что
+GitHub Pages не нужен: прототип открывается прямо по адресу сервиса `token`.
 
 1. railway.app → New Project → Deploy from GitHub repo → `emma-playground`.
 2. В созданном сервисе: Settings → Source → Root Directory = `agent`.
@@ -108,15 +108,17 @@ token-сервера в `EMMA_TOKEN_SERVER_URL` в `../js/emma-connect.js`, вы
    папка не переживает передеплой, но транскрипт дублируется в логи).
 4. Второй сервис: в проекте нажми New → GitHub Repo → тот же репозиторий.
    Settings → Root Directory = `agent`, Custom Start Command =
-   `uvicorn server:app --host 0.0.0.0 --port $PORT`. Назови `token`.
+   `uvicorn server:app --host 0.0.0.0 --port 8080`. Назови `token`.
+   Порт пишем числом: у сборки из Dockerfile Railway не подставляет `$PORT`
+   в команду старта, и uvicorn падает с `'$PORT' is not a valid integer`.
 5. Variables для `token`: `LIVEKIT_URL`, `LIVEKIT_API_KEY`,
    `LIVEKIT_API_SECRET`, `EMMA_ACCESS_CODE` (придумай код для команды).
-6. Settings → Networking → Generate Domain у сервиса `token`. Полученный
-   адрес впиши в `EMMA_TOKEN_SERVER_URL` в `../js/emma-connect.js`.
+6. Settings → Networking → Generate Domain у сервиса `token`, порт `8080`.
+   Это и есть адрес прототипа (сейчас https://token-production-a25e.up.railway.app).
 
 Проверка: `https://<домен token>/health` отвечает `{"ok": true}`; в логах
-`worker` есть строка `registered worker`. После этого страница на GitHub
-Pages при первом нажатии спросит код доступа и соединит с Эммой.
+`worker` есть строка `registered worker`. После этого `https://<домен token>/`
+открывает страницу, при первом нажатии спрашивает код доступа и соединяет с Эммой.
 
 Каждый пуш в `main` пересобирает оба сервиса.
 

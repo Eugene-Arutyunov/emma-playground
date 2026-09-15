@@ -1,9 +1,10 @@
 import os
 import secrets
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from livekit import api
 from pydantic import BaseModel, Field
 
@@ -28,25 +29,12 @@ LIVEKIT_API_SECRET = os.environ["LIVEKIT_API_SECRET"]
 # чтобы случайный человек со ссылкой не тратил баланс OpenRouter и Cartesia.
 ACCESS_CODE = os.environ["EMMA_ACCESS_CODE"]
 
-# Домены, с которых разрешено обращаться к этому серверу за токеном.
-# Добавь сюда свой кастомный домен, если он появится.
-ALLOWED_ORIGINS = [
-    "https://eugene-arutyunov.github.io",
-    "https://novanikita.github.io",
-    "http://localhost:8080",
-    "http://127.0.0.1:8080",
-]
+WEB_DIR = Path(__file__).parent / "web"
 
 MODEL_IDS = {id for id, _ in MODELS}
 VOICE_IDS = {id for id, _ in VOICES}
 
 app = FastAPI()
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_methods=["POST", "GET"],
-    allow_headers=["*"],
-)
 
 
 class TokenRequest(BaseModel):
@@ -104,3 +92,8 @@ async def create_token(body: TokenRequest):
 @app.get("/health")
 async def health():
     return {"ok": True}
+
+
+# Страница прототипа живёт на том же домене, что и API. Монтируется последней,
+# чтобы /catalog, /token и /health не перекрывались статикой.
+app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")

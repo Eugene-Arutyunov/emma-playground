@@ -1,7 +1,3 @@
-// Адрес задеплоенного token-сервера (agent/server.py на Railway).
-// Пример: "https://emma-token-production.up.railway.app"
-const EMMA_TOKEN_SERVER_URL = "https://token-production-a25e.up.railway.app";
-
 const EMMA_STRINGS = {
   ru: {
     idle: "",
@@ -11,7 +7,6 @@ const EMMA_STRINGS = {
     error: "Не получилось подключиться. ",
     wrongCode: "Неверный код доступа.",
     askCode: "Код доступа",
-    notConfigured: "Прототип ещё не подключён к серверу — впиши EMMA_TOKEN_SERVER_URL в js/emma-connect.js.",
     catalogError: "Сервер недоступен, попробуй обновить страницу.",
     disconnect: "Закончить разговор",
     talk: "Поговорить с Эммой",
@@ -29,7 +24,6 @@ const EMMA_STRINGS = {
     error: "Couldn't connect. ",
     wrongCode: "Wrong access code.",
     askCode: "Access code",
-    notConfigured: "The prototype isn't wired to a server yet — set EMMA_TOKEN_SERVER_URL in js/emma-connect.js.",
     catalogError: "The server is unavailable, try reloading the page.",
     disconnect: "End conversation",
     talk: "Talk to Emma",
@@ -129,13 +123,8 @@ const SUMMARY_TIMEOUT_MS = 20000;
   }
 
   async function loadCatalog() {
-    if (!EMMA_TOKEN_SERVER_URL) {
-      setStatus(t.notConfigured);
-      els.button.disabled = true;
-      return;
-    }
     try {
-      const res = await fetch(`${EMMA_TOKEN_SERVER_URL}/catalog`);
+      const res = await fetch("/catalog");
       if (!res.ok) throw new Error(`catalog: ${res.status}`);
       const catalog = await res.json();
       const saved = loadSettings();
@@ -254,7 +243,7 @@ const SUMMARY_TIMEOUT_MS = 20000;
     setStatus(t.connecting);
 
     try {
-      const res = await fetch(`${EMMA_TOKEN_SERVER_URL}/token`, {
+      const res = await fetch("/token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ access_code: accessCode, lang, ...currentSettings() }),
