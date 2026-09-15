@@ -226,7 +226,6 @@ class Emma(Agent):
 
 def prewarm(proc: JobProcess) -> None:
     proc.userdata["vad"] = silero.VAD.load()
-    proc.userdata["turn_detector"] = MultilingualModel()
 
 
 async def entrypoint(ctx: JobContext) -> None:
@@ -254,7 +253,9 @@ async def entrypoint(ctx: JobContext) -> None:
         llm=main_llm,
         tts=tts,
         vad=ctx.proc.userdata["vad"],
-        turn_handling=TurnHandlingOptions(turn_detection=ctx.proc.userdata["turn_detector"]),
+        # Турн-детектор создаётся только здесь: в prewarm ему не хватает
+        # контекста задачи, и весь процесс падает с "no job context found".
+        turn_handling=TurnHandlingOptions(turn_detection=MultilingualModel()),
     )
 
     conversation = Conversation(ctx.room.name, cfg, session)
