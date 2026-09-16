@@ -13,9 +13,11 @@
 }
 
 .emma__scroll {
+  flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding-right: 0.4em;
+  font-size: 0.8em;
 }
 
 /* Настройки */
@@ -104,18 +106,14 @@
   color: var(--ids__text-caption);
 }
 
-/* Справа: наблюдения сверху, расшифровка под ними */
+/* Справа: один список — реплики и наблюдения Эммы вперемешку, по времени */
 
 .emma__side {
-  display: grid;
-  grid-template-rows: minmax(0, 2fr) minmax(0, 3fr);
-  gap: var(--ids__gap-l);
+  display: flex;
+  width: 20em;
+  max-width: 100%;
+  margin-left: auto;
   min-height: 0;
-}
-
-.emma__transcript:not(:empty) {
-  padding-top: var(--ids__gap-m);
-  border-top: var(--ids__border-width-s) solid var(--ids__border);
 }
 
 .emma__turn,
@@ -195,7 +193,8 @@
   }
 
   .emma__side {
-    grid-template-rows: auto auto;
+    width: 100%;
+    margin-left: 0;
   }
 
   .emma__scroll {

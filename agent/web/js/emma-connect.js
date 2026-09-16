@@ -39,7 +39,6 @@ const AGENT_STATE_ATTRIBUTE = "lk.agent.state";
     voice: $("emma-voice"),
     prompt: $("emma-prompt"),
     transcript: $("emma-transcript"),
-    signals: $("emma-signals"),
   };
   if (Object.values(els).some((el) => !el)) return;
 
@@ -284,7 +283,6 @@ const AGENT_STATE_ATTRIBUTE = "lk.agent.state";
   function resetPanels() {
     segments.clear();
     els.transcript.innerHTML = "";
-    els.signals.innerHTML = "";
   }
 
   // --- текстовые потоки от воркера -----------------------------------------
@@ -304,7 +302,7 @@ const AGENT_STATE_ATTRIBUTE = "lk.agent.state";
     const raw = await reader.readAll();
     try {
       const signal = JSON.parse(raw);
-      addEntry(els.signals, "emma__signal", signal.signal, signal.note);
+      addEntry(els.transcript, "emma__signal", signal.signal, signal.note);
     } catch (err) {
       console.error("bad signal payload", raw, err);
     }
