@@ -4,8 +4,6 @@ const t = {
   connected: "Emma is listening. Go ahead.",
   summarizing: "Emma is wrapping up…",
   error: "Couldn't connect. ",
-  wrongCode: "Wrong access code.",
-  askCode: "Access code",
   catalogError: "The server is unavailable, try reloading the page.",
   disconnect: "End conversation",
   talk: "Talk to Emma",
@@ -14,7 +12,7 @@ const t = {
   summary: "Wrap-up",
 };
 
-const STORAGE_KEYS = { code: "emma-access-code", settings: "emma-settings" };
+const SETTINGS_STORAGE_KEY = "emma-settings";
 
 const TOPICS = {
   transcription: "lk.transcription",
@@ -172,21 +170,6 @@ const AGENT_STATE_ATTRIBUTE = "lk.agent.state";
 
   // --- настройки сессии -----------------------------------------------------
 
-  function readStored(key) {
-    try {
-      return localStorage.getItem(key);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  function writeStored(key, value) {
-    try {
-      if (value === null) localStorage.removeItem(key);
-      else localStorage.setItem(key, value);
-    } catch (_) {}
-  }
-
   // Пока в списке ничего не выбрано, поле не отправляется — сервер подставит
   // значение по умолчанию.
   function currentSettings() {
@@ -198,13 +181,17 @@ const AGENT_STATE_ATTRIBUTE = "lk.agent.state";
     };
   }
 
+  // localStorage может быть недоступен (приватный режим, запрет сайтам) —
+  // тогда настройки просто не запоминаются.
   function saveSettings() {
-    writeStored(STORAGE_KEYS.settings, JSON.stringify(currentSettings()));
+    try {
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(currentSettings()));
+    } catch (_) {}
   }
 
   function loadSettings() {
     try {
-      return JSON.parse(readStored(STORAGE_KEYS.settings)) || {};
+      return JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY)) || {};
     } catch (_) {
       return {};
     }
@@ -316,19 +303,7 @@ const AGENT_STATE_ATTRIBUTE = "lk.agent.state";
 
   // --- соединение -----------------------------------------------------------
 
-  function getAccessCode() {
-    let code = readStored(STORAGE_KEYS.code) || "";
-    if (!code) {
-      code = (prompt(t.askCode) || "").trim();
-      if (code) writeStored(STORAGE_KEYS.code, code);
-    }
-    return code;
-  }
-
   async function connect() {
-    const accessCode = getAccessCode();
-    if (!accessCode) return;
-
     els.button.disabled = true;
     setControlsDisabled(true);
     setStatus(t.connecting);
@@ -337,12 +312,8 @@ const AGENT_STATE_ATTRIBUTE = "lk.agent.state";
       const res = await fetch("/token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ access_code: accessCode, ...currentSettings() }),
+        body: JSON.stringify(currentSettings()),
       });
-      if (res.status === 403) {
-        writeStored(STORAGE_KEYS.code, null);
-        throw new Error(t.wrongCode);
-      }
       if (!res.ok) throw new Error(`token server: ${res.status}`);
       const { url, token } = await res.json();
 

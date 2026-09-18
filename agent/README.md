@@ -64,9 +64,9 @@ uvicorn server:app --reload --port 8080
 Один процесс и отдаёт страницу прототипа (`web/`), и обслуживает её API:
 список моделей, характеров и голосов (`/catalog`) и одноразовую комнату +
 токен (`/token`). Страница и API на одном домене, поэтому адрес сервера нигде
-прописывать не нужно и CORS не настраивается. В `.env` нужен
-`EMMA_ACCESS_CODE` — общий код доступа для команды, страница спросит его при
-первом нажатии.
+прописывать не нужно и CORS не настраивается. Всё, кроме `/health`, закрыто
+HTTP-авторизацией: в `.env` нужны `EMMA_AUTH_USER` и `EMMA_AUTH_PASSWORD` —
+общие логин и пароль для команды, браузер спросит их при открытии страницы.
 
 ## 5. Поговори с Эммой
 
@@ -100,8 +100,8 @@ GitHub Pages не нужен: прототип открывается прямо
 2. В созданном сервисе: Settings → Source → Root Directory = `agent`.
    Переименуй сервис в `worker`. Команду старта не трогай (из Dockerfile:
    `python main.py start`).
-3. Variables → вставь все ключи из `.env` (без `EMMA_ACCESS_CODE` — воркеру
-   он не нужен). Удобно через Raw Editor одним куском. Опционально:
+3. Variables → вставь все ключи из `.env` (без `EMMA_AUTH_USER` и
+   `EMMA_AUTH_PASSWORD` — воркеру они не нужны). Удобно через Raw Editor одним куском. Опционально:
    `EMMA_REFLECTION_MODEL` — модель второго канала (по умолчанию
    `anthropic/claude-haiku-4.5`), `EMMA_TRANSCRIPTS_DIR` — куда писать
    транскрипты (по умолчанию `transcripts/` рядом с кодом; без Railway Volume
@@ -112,13 +112,14 @@ GitHub Pages не нужен: прототип открывается прямо
    Порт пишем числом: у сборки из Dockerfile Railway не подставляет `$PORT`
    в команду старта, и uvicorn падает с `'$PORT' is not a valid integer`.
 5. Variables для `token`: `LIVEKIT_URL`, `LIVEKIT_API_KEY`,
-   `LIVEKIT_API_SECRET`, `EMMA_ACCESS_CODE` (придумай код для команды).
+   `LIVEKIT_API_SECRET`, `EMMA_AUTH_USER` и `EMMA_AUTH_PASSWORD` (придумай
+   логин и пароль для команды). Без них сервис не стартует.
 6. Settings → Networking → Generate Domain у сервиса `token`, порт `8080`.
    Это и есть адрес прототипа (сейчас https://token-production-a25e.up.railway.app).
 
 Проверка: `https://<домен token>/health` отвечает `{"ok": true}`; в логах
 `worker` есть строка `registered worker`. После этого `https://<домен token>/`
-открывает страницу, при первом нажатии спрашивает код доступа и соединяет с Эммой.
+спрашивает логин и пароль, открывает страницу и соединяет с Эммой.
 
 Каждый пуш в `main` пересобирает оба сервиса.
 
