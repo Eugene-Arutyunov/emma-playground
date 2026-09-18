@@ -215,9 +215,20 @@ const AGENT_STATE_ATTRIBUTE = "lk.agent.state";
     if (selected && items.some((item) => item.id === selected)) select.value = selected;
   }
 
+  // Сессия входа живёт 30 дней и сбрасывается при смене пароля — тогда сервер
+  // отвечает 401, и страница отправляет на вход.
+  function redirectIfSignedOut(res) {
+    if (res.status === 401) {
+      location.href = "/login";
+      return true;
+    }
+    return false;
+  }
+
   async function loadCatalog() {
     try {
       const res = await fetch("/catalog");
+      if (redirectIfSignedOut(res)) return;
       if (!res.ok) throw new Error(`catalog: ${res.status}`);
       const catalog = await res.json();
       const saved = loadSettings();
@@ -314,6 +325,7 @@ const AGENT_STATE_ATTRIBUTE = "lk.agent.state";
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(currentSettings()),
       });
+      if (redirectIfSignedOut(res)) return;
       if (!res.ok) throw new Error(`token server: ${res.status}`);
       const { url, token } = await res.json();
 

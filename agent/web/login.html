@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Sign in · Emma prototype</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <link rel="icon" type="image/png" href="images/favicon.png" />
+    <link rel="preload" href="fonts/ProtoGrotesk.woff2" as="font" type="font/woff2" crossorigin />
+    <script>
+      (function () {
+        var theme = localStorage.getItem("ids-theme");
+        if (theme === "dark" || (!theme && matchMedia("(prefers-color-scheme: dark)").matches)) {
+          document.documentElement.classList.add("dark");
+        }
+      })();
+    </script>
+    <link rel="stylesheet" href="css/tokens/palette.css" />
+    <link rel="stylesheet" href="css/tokens/colors.css" />
+    <link rel="stylesheet" href="css/tokens/scales.css" />
+    <link rel="stylesheet" href="css/settings.css" />
+    <link rel="stylesheet" href="css/reset.css" />
+    <link rel="stylesheet" href="css/page-composition/layout.css" />
+    <link rel="stylesheet" href="css/components/ids.css" />
+    <link rel="stylesheet" href="css/components/theme-toggle.css" />
+    <link rel="stylesheet" href="css/project.css" />
+  </head>
+
+  <body class="ids">
+    <div class="emma__glow emma__glow--idle" aria-hidden="true"></div>
+
+    <button class="ids__theme-toggle" role="switch" aria-checked="false" aria-label="Dark theme">
+      <span class="ids__theme-toggle__track"><span class="ids__theme-toggle__thumb"></span></span>
+    </button>
+
+    <main class="emma-login">
+      <form class="emma-login__form" method="post" action="/login">
+        <h1 class="S">Emma</h1>
+        <input
+          class="emma__control"
+          name="username"
+          type="text"
+          placeholder="Login"
+          aria-label="Login"
+          autocomplete="username"
+          autocapitalize="off"
+          spellcheck="false"
+          required
+          autofocus
+        />
+        <input
+          class="emma__control"
+          name="password"
+          type="password"
+          placeholder="Password"
+          aria-label="Password"
+          autocomplete="current-password"
+          required
+        />
+        <p id="emma-login-error" class="emma-login__error" role="alert" hidden>Wrong login or password.</p>
+        <button class="emma-talk-button" type="submit">Sign in</button>
+      </form>
+    </main>
+
+    <script>
+      if (new URLSearchParams(location.search).has("error")) {
+        document.getElementById("emma-login-error").hidden = false;
+      }
+    </script>
+    <script src="js/theme-toggle.js"></script>
+  </body>
+</html>

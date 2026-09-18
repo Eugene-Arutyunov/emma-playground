@@ -1,12 +1,15 @@
-import base64
-import binascii
+import asyncio
+import hashlib
+import hmac
 import os
 import secrets
+import time
 from pathlib import Path
+from urllib.parse import parse_qs
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from livekit import api
 from pydantic import BaseModel, Field
@@ -29,15 +32,24 @@ LIVEKIT_API_KEY = os.environ["LIVEKIT_API_KEY"]
 LIVEKIT_API_SECRET = os.environ["LIVEKIT_API_SECRET"]
 
 # Прототип закрытый, только для команды: страница, каталог и выдача токенов
-# спрятаны за HTTP Basic Auth, чтобы случайный человек со ссылкой не тратил
-# баланс OpenRouter и Cartesia. Браузер сам запоминает логин и пароль и
-# подставляет их в запросы страницы к /catalog и /token.
+# доступны только после входа, чтобы случайный человек со ссылкой не тратил
+# баланс OpenRouter и Cartesia. Вход — своя страница /login (окно HTTP Basic
+# Auth браузер рисует сам, и оформить его нельзя); после входа сервер ставит
+# подписанную cookie сессии.
 AUTH_USER = os.environ["EMMA_AUTH_USER"]
 AUTH_PASSWORD = os.environ["EMMA_AUTH_PASSWORD"]
-AUTH_REALM = "Emma prototype"
 
-# Открыто без пароля: по /health проверяют, что сервис жив.
-PUBLIC_PATHS = {"/health"}
+SESSION_COOKIE = "emma_session"
+SESSION_MAX_AGE = 30 * 24 * 60 * 60
+# Ключ подписи выводится из логина и пароля: смена пароля в Railway сразу
+# разлогинивает всех, отдельный секрет заводить не нужно.
+SESSION_KEY = hashlib.sha256(f"emma-session\0{AUTH_USER}\0{AUTH_PASSWORD}".encode()).digest()
+
+# Без входа доступны: страница входа, проверка живости и оформление страницы
+# входа. Сама страница прототипа, /catalog и /token — только после входа.
+PUBLIC_PATHS = {"/login", "/health", "/js/theme-toggle.js"}
+PUBLIC_PREFIXES = ("/css/", "/fonts/", "/images/")
+API_PATHS = {"/catalog", "/token"}
 
 WEB_DIR = Path(__file__).parent / "web"
 
@@ -47,30 +59,77 @@ VOICE_IDS = {id for id, _ in VOICES}
 app = FastAPI()
 
 
-def is_authorized(header: str | None) -> bool:
-    if not header or not header.startswith("Basic "):
+def sign(expires: int) -> str:
+    return hmac.new(SESSION_KEY, str(expires).encode(), hashlib.sha256).hexdigest()
+
+
+def new_session() -> str:
+    expires = int(time.time()) + SESSION_MAX_AGE
+    return f"{expires}.{sign(expires)}"
+
+
+def is_valid_session(value: str | None) -> bool:
+    if not value:
         return False
-    try:
-        decoded = base64.b64decode(header[len("Basic ") :], validate=True).decode("utf-8")
-    except (binascii.Error, UnicodeDecodeError):
+    expires, _, signature = value.partition(".")
+    if not expires.isdigit() or int(expires) < time.time():
         return False
-    user, _, password = decoded.partition(":")
+    return hmac.compare_digest(signature, sign(int(expires)))
+
+
+def credentials_match(user: str, password: str) -> bool:
     user_ok = secrets.compare_digest(user.encode(), AUTH_USER.encode())
     password_ok = secrets.compare_digest(password.encode(), AUTH_PASSWORD.encode())
     return user_ok and password_ok
 
 
-# Middleware, а не зависимость FastAPI: так авторизация закрывает и статику
-# страницы, которую отдаёт StaticFiles, а не только API.
+def is_public(path: str) -> bool:
+    return path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES)
+
+
+# Middleware, а не зависимость FastAPI: так вход закрывает и статику страницы,
+# которую отдаёт StaticFiles, а не только API.
 @app.middleware("http")
-async def require_basic_auth(request: Request, call_next):
-    if request.url.path in PUBLIC_PATHS or is_authorized(request.headers.get("authorization")):
+async def require_session(request: Request, call_next):
+    path = request.url.path
+    if is_public(path) or is_valid_session(request.cookies.get(SESSION_COOKIE)):
         return await call_next(request)
-    return PlainTextResponse(
-        "Authentication required",
-        status_code=401,
-        headers={"WWW-Authenticate": f'Basic realm="{AUTH_REALM}", charset="UTF-8"'},
+    if path in API_PATHS:
+        return JSONResponse({"detail": "Not signed in"}, status_code=401)
+    return RedirectResponse("/login", status_code=303)
+
+
+@app.get("/login")
+async def login_page(request: Request):
+    if is_valid_session(request.cookies.get(SESSION_COOKIE)):
+        return RedirectResponse("/", status_code=303)
+    return FileResponse(WEB_DIR / "login.html", headers={"Cache-Control": "no-store"})
+
+
+@app.post("/login")
+async def login(request: Request):
+    # Разбираем форму вручную, чтобы не тянуть python-multipart ради двух полей.
+    form = parse_qs((await request.body()).decode("utf-8", errors="replace"))
+    user = form.get("username", [""])[0]
+    password = form.get("password", [""])[0]
+    if not credentials_match(user, password):
+        # Небольшая пауза делает перебор пароля медленнее.
+        await asyncio.sleep(1)
+        return RedirectResponse("/login?error=1", status_code=303)
+
+    response = RedirectResponse("/", status_code=303)
+    # Railway отдаёт сайт по HTTPS через прокси: схему берём из его заголовка,
+    # локально (http://localhost) cookie остаётся без флага Secure.
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+    response.set_cookie(
+        SESSION_COOKIE,
+        new_session(),
+        max_age=SESSION_MAX_AGE,
+        httponly=True,
+        secure=scheme == "https",
+        samesite="lax",
     )
+    return response
 
 
 class TokenRequest(BaseModel):

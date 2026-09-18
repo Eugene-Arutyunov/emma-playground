@@ -183,6 +183,49 @@
   box-shadow: inset 0 0 1.5em 0.3em var(--ids__link);
 }
 
+/* Неподвижное свечение «в покое» — на странице входа, где разговора нет */
+.emma__glow--idle {
+  --emma-glow: 0.15;
+}
+
+/* Страница входа: форма по центру экрана, в тех же элементах, что и прототип */
+
+.emma-login {
+  box-sizing: border-box;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--ids__spacer-s) calc(var(--ids__density) * 1rem);
+}
+
+.emma-login__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ids__gap-s);
+  width: 16em;
+  max-width: 100%;
+}
+
+.emma-login__form h1 {
+  margin-bottom: var(--ids__gap-s);
+}
+
+.emma-login__form .emma__control {
+  font-size: 0.9em;
+  padding: 0.55em 0.8em;
+}
+
+.emma-login__form .emma-talk-button {
+  width: 100%;
+  margin-top: var(--ids__gap-s);
+}
+
+.emma-login__error {
+  margin: 0;
+  font-size: 0.8em;
+  color: var(--ids__accent);
+}
+
 /* На узких экранах колонки встают друг под другом — тут прокрутка страницы неизбежна */
 
 @media (width < 900px) {
