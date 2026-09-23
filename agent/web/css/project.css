@@ -99,11 +99,206 @@
   box-shadow: none;
 }
 
-.emma-status {
+/* Под кнопкой — состояние разговора. Вынесено из потока: кнопка всегда стоит
+   ровно в центре экрана и не уезжает из-под курсора, когда оно появляется. */
+
+.emma__talk {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.emma__talk-details {
+  /* Отступ текста от края блока: точка + промежуток. Подсказка и действия
+     встают на одну вертикаль с подписями строк, точки висят слева. */
+  --emma-indent: calc(0.5em + 0.6em);
+
+  position: absolute;
+  top: calc(100% + var(--ids__gap-l));
+  left: 50%;
+  transform: translateX(-50%);
+  width: 19em;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(var(--ids__density) * 0.5em);
+  font-size: 0.8em;
+  text-align: left;
+}
+
+/* Цепочка «микрофон → соединение → Эмма». Пока всё в порядке, она тихая:
+   серые подписи и значения, говорят только зелёные точки. Строка со сбоем
+   выделяется целиком — основным цветом текста или красным. */
+
+.ids .emma__health {
+  width: 100%;
+  margin: 0;
+}
+
+.ids .emma__health li {
+  margin: 0;
+  padding-left: 0;
+}
+
+.ids .emma__health li::before {
+  content: none;
+}
+
+.emma__health-row {
+  display: grid;
+  grid-template-columns: 0.5em 5.6em minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 0.6em;
   min-height: calc(var(--ids__density) * 1em);
-  max-width: 16em;
-  font-size: 0.9em;
+}
+
+.emma__health-label,
+.emma__health-text {
   color: var(--ids__text-caption);
+  white-space: nowrap;
+}
+
+.emma__health-row[data-level="warn"] :is(.emma__health-label, .emma__health-text) {
+  color: var(--ids__text);
+}
+
+.emma__health-row[data-level="error"] .emma__health-label {
+  color: var(--ids__text);
+}
+
+.emma__health-row[data-level="error"] .emma__health-text {
+  color: var(--ids__error);
+}
+
+.emma__health-value {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  min-width: 0;
+}
+
+.emma__dot {
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: var(--ids__radius-pill);
+  background: var(--ids__border);
+  transition: background-color var(--ids__duration-base) var(--ids__easing-base);
+}
+
+.emma__health-row[data-level="ok"] .emma__dot {
+  background: var(--ids__success);
+}
+
+.emma__health-row[data-level="warn"] .emma__dot {
+  background: var(--ids__mark);
+}
+
+.emma__health-row[data-level="error"] .emma__dot {
+  background: var(--ids__error);
+}
+
+.emma__health-row[data-level="pending"] .emma__dot {
+  background: var(--ids__text-caption);
+  animation: emma-pending 1.2s var(--ids__easing-base) infinite alternate;
+}
+
+@keyframes emma-pending {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .emma__health-row[data-level="pending"] .emma__dot {
+    animation: none;
+  }
+}
+
+/* Громкость микрофона: полоска двигается даже от шума комнаты — видно, что
+   звук идёт. Ширину задаёт скрипт через scaleX. */
+.emma__meter {
+  flex: none;
+  width: 2.6em;
+  height: 0.3em;
+  overflow: hidden;
+  border-radius: var(--ids__radius-pill);
+  background: var(--ids__border);
+}
+
+.emma__meter-fill {
+  display: block;
+  height: 100%;
+  background: var(--ids__success);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
+.emma__health-row[data-level="off"] .emma__meter,
+.emma__health-row[data-level="error"] .emma__meter {
+  display: none;
+}
+
+/* «Mute», «Turn on sound» — действия в виде ссылок IDS */
+.emma__health-action {
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  background: none;
+  border: none;
+  color: var(--ids__link);
+  text-decoration: underline;
+  text-decoration-thickness: var(--ids__border-width-s);
+  text-underline-offset: 0.2em;
+  text-decoration-color: color-mix(in srgb, var(--ids__link) 20%, transparent);
+  transition:
+    color var(--ids__duration-base) var(--ids__easing-base),
+    text-decoration-color var(--ids__duration-base) var(--ids__easing-base);
+}
+
+.emma__health-action:hover {
+  color: var(--ids__hover);
+  text-decoration-color: color-mix(in srgb, var(--ids__hover) 20%, transparent);
+  transition-duration: var(--ids__duration-instant);
+}
+
+.emma__sound-button {
+  margin-left: var(--emma-indent);
+}
+
+/* Подсказка: что происходит и что с этим сделать. Показывается, только когда
+   есть что сказать — сбой или приглашение начать разговор. */
+.ids .emma-status {
+  margin: 0 0 0 var(--emma-indent);
+  color: var(--ids__text-caption);
+}
+
+.ids .emma-status:empty {
+  display: none;
+}
+
+.ids .emma-status[data-level="warn"] {
+  color: var(--ids__text);
+}
+
+.ids .emma-status[data-level="error"] {
+  color: var(--ids__error);
+}
+
+/* Техническая причина сбоя — мелко, для того, кто будет чинить */
+.emma-status__detail {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  margin-top: 0.25em;
+  font-size: 0.85em;
+  color: var(--ids__text-caption);
+  overflow-wrap: anywhere;
 }
 
 /* Справа: один список — реплики и наблюдения Эммы вперемешку, по времени */
@@ -129,6 +324,25 @@
 
 .emma__turn--user .emma__entry-title {
   color: var(--ids__link);
+}
+
+/* Время ответа у реплики Эммы; разбивка по звеньям — при наведении на реплику */
+.emma__latency,
+.emma__latency-parts {
+  font-variant-numeric: tabular-nums;
+}
+
+.emma__latency::before {
+  content: " · ";
+}
+
+.emma__latency-parts {
+  opacity: 0;
+  transition: opacity var(--ids__duration-fast) var(--ids__easing-base);
+}
+
+.emma__turn:hover .emma__latency-parts {
+  opacity: 1;
 }
 
 .emma__signal {
@@ -238,6 +452,13 @@
   .emma__side {
     width: 100%;
     margin-left: 0;
+  }
+
+  .emma__talk-details {
+    position: static;
+    transform: none;
+    max-width: 100%;
+    margin-top: var(--ids__gap-l);
   }
 
   .emma__scroll {

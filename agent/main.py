@@ -22,7 +22,7 @@ from livekit.agents import (
     inference,
     llm,
 )
-from livekit.agents.voice.events import ConversationItemAddedEvent
+from livekit.agents.voice.events import ConversationItemAddedEvent, ErrorEvent
 from livekit.plugins import cartesia, deepgram, openai, silero
 
 from catalog import CHARACTERS, DEFAULT_CHARACTER, DEFAULT_MODEL, DEFAULT_VOICE
@@ -39,6 +39,27 @@ TRANSCRIPTS_DIR = Path(os.getenv("EMMA_TRANSCRIPTS_DIR", "transcripts"))
 TOPIC_SIGNALS = "emma.signals"
 TOPIC_SUMMARY = "emma.summary"
 TOPIC_CONTROL = "emma.control"
+# Сбои звеньев конвейера (распознавание, модель, голос) — чтобы страница
+# объясняла, почему Эмма молчит, а не просто молчала вместе с ней.
+TOPIC_STATUS = "emma.status"
+
+PIPELINE_STAGES = {"stt_error": "stt", "llm_error": "llm", "tts_error": "tts"}
+# Время ответа: от момента, когда собеседник замолчал, до первого звука Эммы,
+# с разбивкой по звеньям — чтобы сравнивать модели и голоса.
+TOPIC_LATENCY = "emma.latency"
+
+
+def latency_report(assistant_metrics: Mapping, user_metrics: Mapping) -> dict | None:
+    total = assistant_metrics.get("e2e_latency")
+    if total is None:
+        return None
+    parts = {
+        "total": total,
+        "turn": user_metrics.get("end_of_turn_delay"),
+        "model": assistant_metrics.get("llm_node_ttft"),
+        "voice": assistant_metrics.get("tts_node_ttfb"),
+    }
+    return {key: round(value, 2) for key, value in parts.items() if value is not None}
 
 GREETING = "Say hello in one short sentence and ask what the person would like to talk about."
 
@@ -129,11 +150,16 @@ class Conversation:
         self._saved = False
 
     def turns(self) -> list[dict]:
-        return [
-            {"role": item.role, "text": item.text_content or "", "at": item.created_at}
-            for item in self.session.history.items
-            if item.type == "message" and item.role in ("user", "assistant")
-        ]
+        turns = []
+        for item in self.session.history.items:
+            if item.type != "message" or item.role not in ("user", "assistant"):
+                continue
+            turn = {"role": item.role, "text": item.text_content or "", "at": item.created_at}
+            latency = (item.metrics or {}).get("e2e_latency")
+            if latency is not None:
+                turn["latency"] = round(latency, 2)
+            turns.append(turn)
+        return turns
 
     def as_text(self) -> str:
         return "\n".join(f"{SPEAKER[t['role']]}: {t['text']}" for t in self.turns() if t["text"])
@@ -241,10 +267,39 @@ async def entrypoint(ctx: JobContext) -> None:
     conversation = Conversation(ctx.room.name, cfg, session)
     reflector = Reflector(ctx.room, conversation, openrouter_llm(REFLECTION_MODEL))
 
+    # Задержка конца реплики лежит в метриках реплики собеседника, остальное —
+    # в метриках ответа Эммы, который приходит, когда она договорила.
+    last_user_metrics: dict = {}
+
     @session.on("conversation_item_added")
     def _on_item(ev: ConversationItemAddedEvent) -> None:
-        if getattr(ev.item, "role", None) == "user":
+        role = getattr(ev.item, "role", None)
+        metrics = getattr(ev.item, "metrics", None) or {}
+        if role == "user":
+            last_user_metrics.clear()
+            last_user_metrics.update(metrics)
             asyncio.create_task(reflector.observe())
+        elif role == "assistant":
+            report = latency_report(metrics, last_user_metrics)
+            if report:
+                asyncio.create_task(
+                    ctx.room.local_participant.send_text(json.dumps(report), topic=TOPIC_LATENCY)
+                )
+
+    @session.on("error")
+    def _on_error(ev: ErrorEvent) -> None:
+        stage = PIPELINE_STAGES.get(getattr(ev.error, "type", ""))
+        if stage is None:
+            return
+        status = {
+            "stage": stage,
+            "recoverable": bool(ev.error.recoverable),
+            "detail": str(ev.error.error)[:240],
+        }
+        logger.warning("pipeline error: %s", status)
+        asyncio.create_task(
+            ctx.room.local_participant.send_text(json.dumps(status), topic=TOPIC_STATUS)
+        )
 
     async def finish() -> None:
         if conversation.summary is not None:

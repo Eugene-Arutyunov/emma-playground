@@ -48,8 +48,36 @@
       </section>
 
       <section class="emma__center" aria-label="Talk">
-        <button id="emma-talk-button" class="emma-talk-button">Talk to Emma</button>
-        <p id="emma-status" class="emma-status" aria-live="polite"></p>
+        <div class="emma__talk">
+          <button id="emma-talk-button" class="emma-talk-button">Talk to Emma</button>
+
+          <div class="emma__talk-details">
+            <ul id="emma-health" class="emma__health" aria-label="Conversation health" hidden>
+              <li id="emma-health-mic" class="emma__health-row" data-level="off">
+                <span class="emma__dot" aria-hidden="true"></span>
+                <span class="emma__health-label">Microphone</span>
+                <span class="emma__health-value">
+                  <span class="emma__meter" aria-hidden="true"><span id="emma-mic-meter" class="emma__meter-fill"></span></span>
+                  <span class="emma__health-text"></span>
+                </span>
+                <button id="emma-mic-toggle" class="emma__health-action" hidden>Mute</button>
+              </li>
+              <li id="emma-health-net" class="emma__health-row" data-level="off">
+                <span class="emma__dot" aria-hidden="true"></span>
+                <span class="emma__health-label">Connection</span>
+                <span class="emma__health-value"><span class="emma__health-text"></span></span>
+              </li>
+              <li id="emma-health-emma" class="emma__health-row" data-level="off">
+                <span class="emma__dot" aria-hidden="true"></span>
+                <span class="emma__health-label">Emma</span>
+                <span class="emma__health-value"><span class="emma__health-text"></span></span>
+              </li>
+            </ul>
+
+            <p id="emma-status" class="emma-status" aria-live="polite"></p>
+            <button id="emma-sound-button" class="emma__health-action emma__sound-button" hidden>Turn on sound</button>
+          </div>
+        </div>
       </section>
 
       <section class="emma__side">
