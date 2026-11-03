@@ -2,6 +2,33 @@
    Слева настройки, в центре кнопка разговора, справа наблюдения и под ними
    расшифровка — прокручиваются только они, внутри своих блоков. */
 
+/* Настроение собеседника красит свечение по краям, кнопку и ярлык над ней.
+   Нейтральное состояние серо-фиолетовое, злость красная, грусть синяя.
+   Цвет живёт в переменной, зарегистрированной через @property: переход между
+   состояниями плавный везде, где она используется. */
+
+@property --emma-mood {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: rgb(97, 97, 118);
+}
+
+:root {
+  --emma-mood-neutral: rgb(97, 97, 118);
+  --emma-mood-angry: rgb(238, 64, 86);
+  --emma-mood-sad: rgb(0, 120, 200);
+  --emma-mood: var(--emma-mood-neutral);
+  transition: --emma-mood 0.8s var(--ids__easing-base);
+}
+
+:root[data-mood="angry"] {
+  --emma-mood: var(--emma-mood-angry);
+}
+
+:root[data-mood="sad"] {
+  --emma-mood: var(--emma-mood-sad);
+}
+
 .emma {
   box-sizing: border-box;
   height: 100dvh;
@@ -57,13 +84,60 @@
   resize: none;
 }
 
+/* Лог событий под настройками (во время разговора они всё равно заблокированы):
+   секунды от начала разговора, состояния Эммы, сигналы, метки Velma, сбои. */
+
+.emma__log-title {
+  margin-top: var(--ids__gap-l);
+  font-size: 0.8em;
+  color: var(--ids__text-caption);
+}
+
+.emma__log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
+  font-size: 0.72em;
+  line-height: 1.5;
+  color: var(--ids__text-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.emma__log-line {
+  display: grid;
+  grid-template-columns: 3.8em minmax(0, 1fr);
+  gap: 0.5em;
+}
+
+.emma__log-line[data-kind="signal"] {
+  color: var(--ids__text);
+}
+
+.emma__log-line[data-mood="angry"] {
+  color: var(--emma-mood-angry);
+}
+
+.emma__log-line[data-mood="sad"] {
+  color: var(--emma-mood-sad);
+}
+
+.emma__log-line[data-kind="error"] {
+  color: var(--ids__error);
+}
+
 /* Центр: кнопка разговора */
 
 .emma__center {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  /* Сцена стоит на фиксированной высоте, а не по центру: что бы ни появлялось
+     под шаром (подсказка, строки, кнопки), он не ездит по экрану. */
+  justify-content: flex-start;
+  padding-top: 12vh;
   gap: var(--ids__gap-s);
   min-height: 0;
   text-align: center;
@@ -74,23 +148,24 @@
   cursor: pointer;
   text-align: center;
   color: var(--ids__color-white);
-  background: var(--ids__link);
+  background: var(--emma-mood);
   border: none;
   border-radius: var(--ids__radius-m);
   padding: calc(var(--ids__density) * 0.6em) calc(var(--ids__density) * 1em);
   font: inherit;
-  font-size: 1.1em;
+  font-size: 0.95em;
   font-weight: 600;
   line-height: var(--ids__density);
-  box-shadow: 0 0.3em 1.2em color-mix(in srgb, var(--ids__link) 40%, transparent);
+  box-shadow: 0 0.3em 1.2em color-mix(in srgb, var(--emma-mood) 40%, transparent);
   transition:
     background-color var(--ids__duration-base) var(--ids__easing-base),
     box-shadow var(--ids__duration-base) var(--ids__easing-base);
 }
 
+/* При наведении тот же цвет настроения, чуть светлее */
 .ids .emma-talk-button:hover {
-  background: var(--ids__hover);
-  box-shadow: 0 0.4em 1.6em color-mix(in srgb, var(--ids__hover) 55%, transparent);
+  background: color-mix(in srgb, var(--emma-mood) 82%, white);
+  box-shadow: 0 0.4em 1.6em color-mix(in srgb, var(--emma-mood) 55%, transparent);
 }
 
 .ids .emma-talk-button:disabled {
@@ -99,8 +174,15 @@
   box-shadow: none;
 }
 
-/* Под кнопкой — состояние разговора. Вынесено из потока: кнопка всегда стоит
-   ровно в центре экрана и не уезжает из-под курсора, когда оно появляется. */
+/* Сцена: шар с состоянием Эммы, подпись под ним, кнопка и цепочка
+   «микрофон → соединение → Эмма → Velma». */
+
+.emma__stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ids__gap-s);
+}
 
 .emma__talk {
   position: relative;
@@ -109,22 +191,243 @@
   align-items: center;
 }
 
+/* Шар — это сама Эмма. Слушает: дышит. Слышит тебя: от него идут кольца.
+   Думает: пульсирует с точками. Говорит: столбики под её голос. Сломалась:
+   пустой с красной обводкой. Цвет шара — настроение собеседника (--emma-mood).
+   Состояние задаёт data-state на .emma__stage. */
+
+.emma__orb {
+  position: relative;
+  width: 8em;
+  height: 8em;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--ids__color-white);
+  background: radial-gradient(
+    circle at 50% 42%,
+    color-mix(in srgb, var(--emma-mood) 55%, white) 0%,
+    var(--emma-mood) 55%,
+    color-mix(in srgb, var(--emma-mood) 72%, black) 100%
+  );
+  box-shadow: 0 0.6em 2.4em color-mix(in srgb, var(--emma-mood) 45%, transparent);
+  transition:
+    box-shadow var(--ids__duration-base) var(--ids__easing-base),
+    opacity var(--ids__duration-base) var(--ids__easing-base);
+}
+
+.emma__orb::before,
+.emma__orb::after {
+  content: "";
+  position: absolute;
+  inset: -0.5em;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--emma-mood) 65%, transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.emma__orb-mark {
+  display: none;
+  font-size: 3.2em;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ids__error);
+}
+
+.emma__orb-dots {
+  display: none;
+  gap: 0.35em;
+}
+
+.emma__orb-dots i {
+  width: 0.55em;
+  height: 0.55em;
+  border-radius: 50%;
+  background: var(--ids__color-white);
+  opacity: 0.5;
+  animation: orb-dot 1.2s ease-in-out infinite;
+}
+
+.emma__orb-dots i:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.emma__orb-dots i:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+.emma__orb-bars {
+  display: none;
+  align-items: flex-end;
+  gap: 0.3em;
+  height: 2.4em;
+}
+
+.emma__orb-bars i {
+  width: 0.5em;
+  border-radius: 0.25em;
+  background: var(--ids__color-white);
+  opacity: 0.85;
+  transform-origin: bottom;
+  animation: orb-bar 0.7s ease-in-out infinite alternate;
+}
+
+.emma__orb-bars i:nth-child(1) { height: 40%; }
+.emma__orb-bars i:nth-child(2) { height: 90%; animation-delay: 0.15s; }
+.emma__orb-bars i:nth-child(3) { height: 60%; animation-delay: 0.3s; }
+.emma__orb-bars i:nth-child(4) { height: 100%; animation-delay: 0.1s; }
+.emma__orb-bars i:nth-child(5) { height: 50%; animation-delay: 0.25s; }
+
+.emma__stage[data-state="off"] .emma__orb {
+  opacity: 0.45;
+}
+
+.emma__stage[data-state="joining"] .emma__orb,
+.emma__stage[data-state="ending"] .emma__orb {
+  opacity: 0.55;
+  animation: orb-breathe 2s ease-in-out infinite;
+}
+
+.emma__stage[data-state="listening"] .emma__orb {
+  animation: orb-breathe 4s ease-in-out infinite;
+}
+
+.emma__stage[data-state="hearing"] .emma__orb::before {
+  animation: orb-ripple 1.3s ease-out infinite;
+}
+
+.emma__stage[data-state="hearing"] .emma__orb::after {
+  animation: orb-ripple 1.3s ease-out 0.65s infinite;
+}
+
+.emma__stage[data-state="thinking"] .emma__orb {
+  animation: orb-think 1.1s ease-in-out infinite;
+}
+
+.emma__stage[data-state="thinking"] .emma__orb-dots {
+  display: flex;
+}
+
+.emma__stage[data-state="speaking"] .emma__orb {
+  animation: orb-speak 0.45s ease-in-out infinite alternate;
+}
+
+.emma__stage[data-state="speaking"] .emma__orb-bars {
+  display: flex;
+}
+
+.emma__stage[data-state="error"] .emma__orb {
+  background: transparent;
+  box-shadow: none;
+  border: 3px solid var(--ids__error);
+  animation: none;
+}
+
+.emma__stage[data-state="error"] .emma__orb-mark {
+  display: block;
+}
+
+@keyframes orb-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+
+@keyframes orb-ripple {
+  from { transform: scale(1); opacity: 0.8; }
+  to { transform: scale(1.45); opacity: 0; }
+}
+
+@keyframes orb-think {
+  0%, 100% { transform: scale(0.96); filter: brightness(1); }
+  50% { transform: scale(1.02); filter: brightness(1.18); }
+}
+
+@keyframes orb-speak {
+  from { transform: scale(1); }
+  to { transform: scale(1.06); }
+}
+
+@keyframes orb-dot {
+  0%, 100% { opacity: 0.35; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-0.25em); }
+}
+
+@keyframes orb-bar {
+  from { transform: scaleY(0.4); }
+  to { transform: scaleY(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .emma__orb,
+  .emma__orb::before,
+  .emma__orb::after,
+  .emma__orb-dots i,
+  .emma__orb-bars i {
+    animation: none !important;
+  }
+}
+
+/* Подпись состояния под шаром: Listening, Hearing you, Thinking…, Speaking, Stopped */
+
+.emma__state {
+  min-height: calc(var(--ids__density) * 1em);
+  font-size: 1.25em;
+  font-weight: 600;
+  line-height: var(--ids__density);
+}
+
+.emma__stage[data-state="error"] .emma__state {
+  color: var(--ids__error);
+}
+
 .emma__talk-details {
-  /* Отступ текста от края блока: точка + промежуток. Подсказка и действия
-     встают на одну вертикаль с подписями строк, точки висят слева. */
+  /* Отступ текста от края блока: точка + промежуток. Действия встают на одну
+     вертикаль с подписями строк, точки висят слева. */
   --emma-indent: calc(0.5em + 0.6em);
 
-  position: absolute;
-  top: calc(100% + var(--ids__gap-l));
-  left: 50%;
-  transform: translateX(-50%);
   width: 19em;
+  margin-top: var(--ids__gap-s);
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: calc(var(--ids__density) * 0.5em);
   font-size: 0.8em;
   text-align: left;
+}
+
+/* Ярлык настроения над кнопкой: «Angry · voice». Вне потока, как и строки
+   под кнопкой, чтобы кнопка не двигалась. Появляется и гаснет плавно. */
+
+.emma__mood {
+  position: absolute;
+  bottom: calc(100% + var(--ids__gap-s));
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.2em 0.8em;
+  border-radius: var(--ids__radius-pill);
+  background: var(--emma-mood);
+  color: var(--ids__color-white);
+  font-size: 0.8em;
+  font-weight: 600;
+  line-height: var(--ids__density);
+  white-space: nowrap;
+  opacity: 1;
+  transition:
+    opacity var(--ids__duration-base) var(--ids__easing-base),
+    background-color var(--ids__duration-base) var(--ids__easing-base);
+}
+
+.emma__mood[hidden] {
+  display: block;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Тестовые кнопки сигнала (?dev в адресе) */
+.ids .emma__dev {
+  margin: 0 0 0 var(--emma-indent);
+  color: var(--ids__text-caption);
 }
 
 /* Цепочка «микрофон → соединение → Эмма». Пока всё в порядке, она тихая:
@@ -270,15 +573,22 @@
   margin-left: var(--emma-indent);
 }
 
-/* Подсказка: что происходит и что с этим сделать. Показывается, только когда
-   есть что сказать — сбой или приглашение начать разговор. */
+/* Подпись под состоянием: что происходит и что с этим сделать. Высота
+   постоянная, чтобы кнопка под ней не прыгала; пока сказать нечего, пустая.
+   Живой текст (расшифровка на лету, секунды раздумий) — основным цветом. */
 .ids .emma-status {
-  margin: 0 0 0 var(--emma-indent);
+  margin: 0;
+  width: 24em;
+  max-width: 100%;
+  height: calc(var(--ids__density) * 3em);
+  overflow: hidden;
+  font-size: 0.85em;
   color: var(--ids__text-caption);
 }
 
-.ids .emma-status:empty {
-  display: none;
+.ids .emma-status--live {
+  color: var(--ids__text);
+  font-variant-numeric: tabular-nums;
 }
 
 .ids .emma-status[data-level="warn"] {
@@ -360,13 +670,81 @@
   color: var(--ids__text-caption);
 }
 
+/* Плашки на реплике собеседника: сигнал (цветная), метка Velma не из сигналов
+   (бледная), детекция по словам, которую перевесил голос (контур). Плашки
+   остаются, когда интерфейс уже вернулся к нейтральному цвету. */
+
+.emma__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35em;
+  margin-top: 0.3em;
+}
+
+.emma__chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1em 0.65em;
+  border-radius: var(--ids__radius-pill);
+  border: 1.5px solid var(--chip, var(--ids__text-caption));
+  background: var(--chip, var(--ids__text-caption));
+  color: var(--ids__color-white);
+  font-size: 0.75em;
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.emma__chip[data-mood="angry"] {
+  --chip: var(--emma-mood-angry);
+}
+
+.emma__chip[data-mood="sad"] {
+  --chip: var(--emma-mood-sad);
+}
+
+.emma__chip small {
+  font-weight: 400;
+  opacity: 0.9;
+}
+
+.emma__chip--outline {
+  background: transparent;
+  color: var(--chip);
+}
+
+.emma__chip--faint {
+  background: transparent;
+  border-color: var(--ids__border);
+  color: var(--ids__text-caption);
+  font-weight: 400;
+  cursor: default;
+}
+
+.emma__chip--new {
+  animation: chip-pop 0.35s ease-out;
+}
+
+@keyframes chip-pop {
+  from { transform: scale(0.6); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .emma__chip--new {
+    animation: none;
+  }
+}
+
 .emma__summary {
   padding: calc(var(--ids__density) * 0.5em) calc(var(--ids__density) * 0.7em);
   background: var(--ids__surface);
   border-radius: var(--ids__radius-m);
 }
 
-/* Свечение по краям экрана — активность Эммы во время разговора.
+/* Свечение по краям экрана — активность Эммы во время разговора; его цвет —
+   настроение собеседника (--emma-mood, см. начало файла).
    Скрипт задаёт --emma-glow (0…1) по громкости её голоса; анимируется только
    opacity. Широкий мягкий слой видно на любой громкости, тонкая яркая кромка
    проявляется на громких фразах (её яркость — квадрат уровня). Слой лежит
@@ -389,12 +767,12 @@
 
 .emma__glow::before {
   opacity: var(--emma-glow);
-  box-shadow: inset 0 0 8em 2em color-mix(in srgb, var(--ids__link) 75%, transparent);
+  box-shadow: inset 0 0 8em 2em color-mix(in srgb, var(--emma-mood) 75%, transparent);
 }
 
 .emma__glow::after {
   opacity: calc(var(--emma-glow) * var(--emma-glow));
-  box-shadow: inset 0 0 1.5em 0.3em var(--ids__link);
+  box-shadow: inset 0 0 1.5em 0.3em var(--emma-mood);
 }
 
 /* Неподвижное свечение «в покое» — на странице входа, где разговора нет */
@@ -447,6 +825,14 @@
     height: auto;
     min-height: 100dvh;
     grid-template-columns: 1fr;
+  }
+
+  .emma__center {
+    padding-top: 2vh;
+  }
+
+  .emma__log {
+    max-height: 30dvh;
   }
 
   .emma__side {

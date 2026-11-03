@@ -45,10 +45,24 @@
           aria-label="Note for this conversation"
           placeholder="Note for this conversation, e.g. speak in rhymes"
         ></textarea>
+
+        <div class="emma__log-title">Events</div>
+        <div id="emma-log" class="emma__log" aria-label="Event log"></div>
       </section>
 
       <section class="emma__center" aria-label="Talk">
-        <div class="emma__talk">
+        <div id="emma-stage" class="emma__stage" data-state="off">
+          <div class="emma__talk">
+            <div id="emma-mood" class="emma__mood" aria-live="polite" hidden></div>
+            <div class="emma__orb" aria-hidden="true">
+              <span class="emma__orb-mark">!</span>
+              <span class="emma__orb-dots"><i></i><i></i><i></i></span>
+              <span class="emma__orb-bars"><i></i><i></i><i></i><i></i><i></i></span>
+            </div>
+          </div>
+          <div id="emma-state" class="emma__state" aria-live="polite"></div>
+          <p id="emma-status" class="emma-status" aria-live="polite"></p>
+
           <button id="emma-talk-button" class="emma-talk-button">Talk to Emma</button>
 
           <div class="emma__talk-details">
@@ -72,10 +86,20 @@
                 <span class="emma__health-label">Emma</span>
                 <span class="emma__health-value"><span class="emma__health-text"></span></span>
               </li>
+              <li id="emma-health-velma" class="emma__health-row" data-level="off">
+                <span class="emma__dot" aria-hidden="true"></span>
+                <span class="emma__health-label">Velma</span>
+                <span class="emma__health-value"><span class="emma__health-text"></span></span>
+              </li>
             </ul>
 
-            <p id="emma-status" class="emma-status" aria-live="polite"></p>
             <button id="emma-sound-button" class="emma__health-action emma__sound-button" hidden>Turn on sound</button>
+            <p id="emma-dev" class="emma__dev" hidden>
+              Test a signal:
+              <button class="emma__health-action" data-mood="angry">angry</button>
+              ·
+              <button class="emma__health-action" data-mood="sad">sad</button>
+            </p>
           </div>
         </div>
       </section>

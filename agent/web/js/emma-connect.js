@@ -8,6 +8,21 @@ const t = {
   averageReply: "average reply",
   mute: "Mute",
   unmute: "Unmute",
+  mood: { angry: "Angry", sad: "Sad" },
+  source: { voice: "voice", words: "words", test: "test" },
+  heardInVoice: "Velma heard it in the voice",
+  saidInWords: "Said in words",
+  confidence: "confidence",
+  afterYouStopped: "after you stopped",
+  whileTalking: "while you were still talking",
+  velmaHeard: "Velma's transcript",
+  velmaLabel: "Velma label",
+  voiceWins: (voice) => `the voice said ${voice}, so the voice wins`,
+  velmaStatus: { listening: "Velma is listening", retrying: "Velma is reconnecting", off: "Velma is off" },
+  micMutedLog: "Microphone muted",
+  micUnmutedLog: "Microphone unmuted",
+  reconnected: "Connection restored",
+  reply: "reply",
 };
 
 // Строки под кнопкой: у каждого звена — состояние и цвет точки.
@@ -51,6 +66,13 @@ const HEALTH = {
     left: ["error", "left"],
     broken: ["error", "stopped"],
   },
+  // Второе ухо Эммы: Velma слушает собеседника параллельно с распознаванием речи.
+  velma: {
+    waiting: ["off", ""],
+    listening: ["ok", "listening"],
+    retrying: ["pending", "reconnecting…"],
+    off: ["off", "off"],
+  },
 };
 
 // Подсказка под строками: что с этим сделать. Сами состояния видны в строках,
@@ -90,6 +112,39 @@ const HINT = {
   },
 };
 
+// Сцена: шар и подпись под ним. Её состояния грубее строки «Emma» в цепочке:
+// подготовка, слушает, слышит тебя, думает, говорит, завершает, сломалась.
+const STAGE = {
+  off: "",
+  joining: "Joining…",
+  listening: "Listening",
+  hearing: "Hearing you",
+  thinking: "Thinking…",
+  speaking: "Speaking",
+  ending: "Wrapping up…",
+  error: "Stopped",
+};
+
+const STAGE_OF = {
+  waiting: "joining",
+  joining: "joining",
+  preparing: "joining",
+  idle: "listening",
+  listening: "listening",
+  hearing: "hearing",
+  thinking: "thinking",
+  slow: "thinking",
+  retrying: "thinking",
+  speaking: "speaking",
+  ending: "ending",
+  absent: "error",
+  stuck: "error",
+  left: "error",
+  broken: "error",
+};
+
+const LOG_LIMIT = 400;
+
 const SETTINGS_STORAGE_KEY = "emma-settings";
 
 const TOPICS = {
@@ -99,6 +154,7 @@ const TOPICS = {
   control: "emma.control",
   status: "emma.status",
   latency: "emma.latency",
+  emotion: "emma.emotion",
 };
 
 const SUMMARY_TIMEOUT_MS = 20000;
@@ -113,6 +169,10 @@ const SILENCE_PEAK = 0.00001;
 const SILENCE_MS = 4000;
 const HEARING_HOLD_MS = 1500;
 const RETRY_HOLD_MS = 8000;
+// Сколько держатся цвет и ярлык настроения после сигнала; новый сигнал продлевает.
+const MOOD_HOLD_MS = 5000;
+// ?dev в адресе показывает кнопки, которые шлют воркеру тестовый сигнал настроения.
+const DEV = new URLSearchParams(location.search).has("dev");
 
 // Состояние агента (initializing / idle / listening / thinking / speaking),
 // которое LiveKit Agents публикует в атрибутах участника.
@@ -135,7 +195,13 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
     micToggle: $("emma-mic-toggle"),
     net: $("emma-health-net"),
     agent: $("emma-health-emma"),
+    velma: $("emma-health-velma"),
     sound: $("emma-sound-button"),
+    mood: $("emma-mood"),
+    dev: $("emma-dev"),
+    stage: $("emma-stage"),
+    state: $("emma-state"),
+    log: $("emma-log"),
   };
   if (Object.values(els).some((el) => !el)) return;
 
@@ -303,6 +369,33 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
     };
   })();
 
+  // --- настроение собеседника -----------------------------------------------
+  //
+  // Сигнал от воркера (злость или грусть) на MOOD_HOLD_MS красит свечение и
+  // кнопку через data-mood на корне страницы и показывает ярлык над кнопкой.
+
+  const mood = (function () {
+    const root = document.documentElement;
+    let timer = 0;
+
+    function clear() {
+      clearTimeout(timer);
+      timer = 0;
+      delete root.dataset.mood;
+      els.mood.hidden = true;
+    }
+
+    function show(name, label) {
+      root.dataset.mood = name;
+      els.mood.textContent = label;
+      els.mood.hidden = false;
+      clearTimeout(timer);
+      timer = setTimeout(clear, MOOD_HOLD_MS);
+    }
+
+    return { show, clear };
+  })();
+
   // --- настройки сессии -----------------------------------------------------
 
   // Пока в списке ничего не выбрано, поле не отправляется — сервер подставит
@@ -437,6 +530,18 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
     const entry = emmaEntries[emmaEntries.length - 1];
     if (!entry || entry.dataset.latency) return;
     entry.dataset.latency = report.total;
+    logEvent(
+      "latency",
+      `${t.reply} ${seconds(report.total)}` +
+        [
+          ["turn", report.turn],
+          ["model", report.model],
+          ["voice", report.voice],
+        ]
+          .filter(([, value]) => typeof value === "number")
+          .map(([name, value], i) => `${i ? " + " : " = "}${name} ${seconds(value)}`)
+          .join("")
+    );
     const head = entry.querySelector(".emma__entry-title");
     const total = document.createElement("span");
     total.className = "emma__latency";
@@ -453,6 +558,117 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
       breakdown.textContent = " = " + parts.map(([name, value]) => `${name} ${seconds(value)}`).join(" + ");
       head.append(breakdown);
     }
+  }
+
+  // --- лог событий и плашки на репликах -------------------------------------
+
+  function logEvent(kind, text, moodName) {
+    const c = conv;
+    if (!c) return;
+    const line = document.createElement("div");
+    line.className = "emma__log-line";
+    line.dataset.kind = kind;
+    if (moodName) line.dataset.mood = moodName;
+    const time = document.createElement("span");
+    time.textContent = seconds((performance.now() - c.startedAt) / 1000);
+    const body = document.createElement("span");
+    body.textContent = text;
+    line.append(time, body);
+    els.log.appendChild(line);
+    while (els.log.childElementCount > LOG_LIMIT) els.log.firstElementChild.remove();
+    els.log.scrollTop = els.log.scrollHeight;
+  }
+
+  function lastUserEntry() {
+    const entries = els.transcript.querySelectorAll(".emma__turn--user");
+    return entries[entries.length - 1] || null;
+  }
+
+  // Плашка на реплике: цветная для сигнала, бледная для любой другой метки
+  // Velma. Ключ — клип Velma или источник со временем: метки одного клипа
+  // (partial → final → update) обновляют одну плашку, а не плодят новые.
+  function setChip(entry, key, chip) {
+    let chips = entry.querySelector(".emma__chips");
+    if (!chips) {
+      chips = document.createElement("div");
+      chips.className = "emma__chips";
+      entry.append(chips);
+    }
+    let el = chips.querySelector(`[data-key="${CSS.escape(key)}"]`);
+    if (el && el.dataset.mood && chip.faint) {
+      // Сигнал уже стоит на этом клипе: окончательная метка только дописывается в подсказку
+      el.title = `${el.title}\n${chip.title}`;
+      return;
+    }
+    if (!el) {
+      el = document.createElement("span");
+      el.dataset.key = key;
+      chips.append(el);
+    }
+    el.className = "emma__chip emma__chip--new";
+    if (chip.faint) el.classList.add("emma__chip--faint");
+    if (chip.outline) el.classList.add("emma__chip--outline");
+    if (chip.mood) el.dataset.mood = chip.mood;
+    else delete el.dataset.mood;
+    el.textContent = chip.text;
+    if (chip.small) {
+      const small = document.createElement("small");
+      small.textContent = ` · ${chip.small}`;
+      el.append(small);
+    }
+    el.title = chip.title || "";
+    scrollToBottom(els.transcript);
+  }
+
+  // Сигнал настроения: цвет и ярлык на несколько секунд, плашка на реплике,
+  // которая его вызвала, строка в логе. Если голос сказал другое, плашка слов
+  // рисуется контуром, а интерфейс не красится: голос важнее слов.
+  function showMood(event) {
+    const name = t.mood[event.mood];
+    if (!name) return;
+    const source = t.source[event.source] || event.source;
+    const overruled = event.overruled;
+    if (!overruled) mood.show(event.mood, `${name} · ${source}`);
+    const hasDelay = typeof event.delay === "number";
+    const when = hasDelay ? `${seconds(event.delay)} ${t.afterYouStopped}` : t.whileTalking;
+    const small = [source];
+    let title = event.note || "";
+    if (event.source === "voice") {
+      title = `${t.heardInVoice}: ${event.label || name} (${event.stage || "final"}), ${when}.`;
+      if (event.text) title += `\n${t.velmaHeard}: “${event.text}”`;
+    } else if (event.source === "words") {
+      const confidence = typeof event.confidence === "number" ? event.confidence.toFixed(2) : "";
+      if (confidence) small.push(confidence);
+      title = `${t.saidInWords}${confidence ? ` · ${t.confidence} ${confidence}` : ""}, ${when}.`;
+      if (event.note) title += `\n${event.note}`;
+    }
+    if (overruled) title += `\n${t.voiceWins(overruled)}`;
+    const entry = lastUserEntry();
+    if (entry) {
+      const key = event.source === "voice" && event.clip ? event.clip : `${event.source}-${event.at}`;
+      setChip(entry, key, {
+        mood: event.mood,
+        text: event.mood,
+        small: small.join(" · "),
+        title,
+        outline: Boolean(overruled),
+      });
+    } else {
+      addEntry(els.transcript, "emma__signal", `${name} · ${source}`, event.note || "");
+    }
+    let line = `${event.mood} · ${source}`;
+    if (hasDelay) line += ` · +${seconds(event.delay)}`;
+    if (overruled) line += ` (${t.voiceWins(overruled)})`;
+    logEvent("signal", line, event.mood);
+  }
+
+  // Любая другая метка Velma: бледная плашка на последней реплике и строка в логе
+  function showLabel(event) {
+    const entry = lastUserEntry();
+    let title = `${t.velmaLabel}: ${event.label} (${event.stage})`;
+    if (event.text) title += `\n${t.velmaHeard}: “${event.text}”`;
+    if (entry) setChip(entry, event.clip || `label-${event.at}`, { text: event.label, title, faint: true });
+    logEvent("velma", `${t.velmaLabel}: ${event.label} (${event.stage})`);
   }
 
   function resetPanels() {
@@ -492,6 +708,11 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
       fatal: null,
       latencies: [],
       summaryReceived: null,
+      velma: { state: "waiting", detail: "" },
+      startedAt: performance.now(),
+      // Последний кусок расшифровки речи собеседника — бежит под шаром, пока она говорит
+      liveText: "",
+      lastEmma: "",
     };
   }
 
@@ -528,6 +749,14 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
     return HEALTH.emma[c.agentState] ? c.agentState : "listening";
   }
 
+  // Velma не звено цепочки разговора: её сбой не роняет разговор, а только
+  // подсвечивает строку; причина уходит записью в правую колонку.
+  function velmaRow(c) {
+    const row = HEALTH.velma[c.velma.state] || HEALTH.velma.waiting;
+    if (c.velma.state === "off" && c.velma.detail) return ["warn", row[1]];
+    return row;
+  }
+
   function hintFor(c, mic, net, emma, now) {
     const warn = (text) => ({ level: "warn", text });
     const info = (text) => ({ level: "", text });
@@ -546,7 +775,7 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
   }
 
   const rowText = new Map(
-    [els.mic, els.net, els.agent].map((row) => [row, row.querySelector(".emma__health-text")])
+    [els.mic, els.net, els.agent, els.velma].map((row) => [row, row.querySelector(".emma__health-text")])
   );
 
   function setRow(row, [level, text]) {
@@ -555,12 +784,19 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
     if (span.textContent !== text) span.textContent = text;
   }
 
+  function setStage(stage) {
+    if (els.stage.dataset.state !== stage) els.stage.dataset.state = stage;
+    const label = STAGE[stage];
+    if (els.state.textContent !== label) els.state.textContent = label;
+  }
+
   let hintKey = "";
-  function setHint({ level, text, detail }) {
-    const key = `${level}|${text}|${detail || ""}`;
+  function setHint({ level, text, detail, live }) {
+    const key = `${level}|${text}|${detail || ""}|${live ? 1 : 0}`;
     if (key === hintKey) return;
     hintKey = key;
     els.status.dataset.level = level || "";
+    els.status.classList.toggle("emma-status--live", Boolean(live));
     els.status.textContent = text;
     if (detail) {
       const small = document.createElement("small");
@@ -575,6 +811,8 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
     if (!c) {
       els.health.hidden = true;
       els.sound.hidden = true;
+      els.dev.hidden = true;
+      setStage("off");
       setHint({ level: "", text: "" });
       return;
     }
@@ -585,13 +823,39 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
     setRow(els.mic, HEALTH.mic[mic]);
     setRow(els.net, HEALTH.net[net]);
     setRow(els.agent, HEALTH.emma[emma]);
+    setRow(els.velma, velmaRow(c));
+    els.dev.hidden = !(DEV && c.active && c.connected);
     els.micToggle.hidden = !(c.active && c.micPublished && !c.micUnplugged);
     const toggleText = c.muted ? t.unmute : t.mute;
     if (els.micToggle.textContent !== toggleText) els.micToggle.textContent = toggleText;
     const showMeter = c.active && mic !== "muted";
     els.micMeter.style.transform = `scaleX(${showMeter ? c.micLevel.toFixed(3) : 0})`;
     els.sound.hidden = !(c.active && c.playbackBlocked);
-    setHint(hintFor(c, mic, net, emma, now));
+
+    // Шар: после сбоя — «Stopped» с причиной, иначе грубое состояние Эммы.
+    // Под подписью — подсказка, а если её нет, живой текст: расшифровка речи
+    // собеседника, пока Эмма её слышит, или секунды, пока думает.
+    const stage = c.fatal ? "error" : c.active ? STAGE_OF[emma] || "listening" : "off";
+    setStage(stage);
+    const hint = hintFor(c, mic, net, emma, now);
+    if (!hint.text && !c.fatal) {
+      if (stage === "hearing" && c.liveText) {
+        hint.text = c.liveText;
+        hint.live = true;
+      } else if (stage === "thinking") {
+        hint.text = seconds((now - c.agentStateSince) / 1000);
+        hint.live = true;
+      }
+    }
+    setHint(hint);
+
+    // Переходы состояний в лог, кроме «слышит тебя»: оно мигает на каждом куске речи
+    if (emma !== c.lastEmma) {
+      const skip = emma === "hearing" || (emma === "listening" && c.lastEmma === "hearing");
+      const text = HEALTH.emma[emma][1];
+      if (!skip && text) logEvent("state", `${t.emma} · ${text}`);
+      c.lastEmma = emma;
+    }
   }
 
   // Пока идёт разговор, раз в кадр: громкость микрофона, тишина, сроки ожидания.
@@ -633,6 +897,7 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
   function fail(c, fatal) {
     if (c.fatal || !c.active) return;
     c.fatal = fatal;
+    logEvent("error", fatal.detail ? `${fatal.hint} (${fatal.detail})` : fatal.hint);
     if (c.room) {
       c.room.disconnect();
     } else {
@@ -643,7 +908,9 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
   function finish(c) {
     if (!c.active) return;
     c.active = false;
+    c.liveText = "";
     glow.stop();
+    mood.clear();
     for (const el of audioElements.splice(0)) el.remove();
     // Опубликованный трек останавливает сама комната при отключении.
     if (c.micTrack && !c.micPublished) c.micTrack.stop();
@@ -659,6 +926,7 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
     if (state !== c.agentState) {
       c.agentState = state;
       c.agentStateSince = performance.now();
+      if (state === "thinking" || state === "speaking") c.liveText = "";
     }
     if (AGENT_LIVE_STATES.includes(state)) c.agentLive = true;
     glow.setAgentState(state);
@@ -701,9 +969,15 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
     room.on(E.ConnectionQualityChanged, (quality, participant) => {
       if (participant === room.localParticipant) c.quality = quality;
     });
-    room.on(E.Reconnecting, () => (c.reconnecting = true));
+    room.on(E.Reconnecting, () => {
+      if (!c.reconnecting) logEvent("error", HINT.reconnecting);
+      c.reconnecting = true;
+    });
     room.on(E.SignalReconnecting, () => (c.reconnecting = true));
-    room.on(E.Reconnected, () => (c.reconnecting = false));
+    room.on(E.Reconnected, () => {
+      if (c.reconnecting) logEvent("net", t.reconnected);
+      c.reconnecting = false;
+    });
     room.on(E.AudioPlaybackStatusChanged, () => (c.playbackBlocked = !room.canPlaybackAudio));
     room.on(E.Disconnected, (reason) => {
       if (!c.ending && !c.fatal && reason !== LivekitClient.DisconnectReason.CLIENT_INITIATED) {
@@ -723,6 +997,7 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
         if (who === "user") {
           c.heardUser = true;
           c.hearingUntil = performance.now() + HEARING_HOLD_MS;
+          c.liveText = text;
         }
         renderSegment(id, who, text);
       }
@@ -775,10 +1050,31 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
       const hints = HINT.stage[status.stage];
       if (!hints) return;
       console.warn("Emma pipeline error", status);
+      logEvent("error", status.recoverable ? hints.retry : hints.fail);
       if (status.recoverable) {
         c.retry = { stage: status.stage, until: performance.now() + RETRY_HOLD_MS };
       } else {
         fail(c, { emma: "broken", hint: hints.fail, detail: status.detail });
+      }
+    });
+
+    room.registerTextStreamHandler(TOPICS.emotion, async (reader) => {
+      const raw = await reader.readAll();
+      let event;
+      try {
+        event = JSON.parse(raw);
+      } catch (err) {
+        console.error("bad emotion payload", raw, err);
+        return;
+      }
+      if (event.mood) {
+        showMood(event);
+      } else if (event.label) {
+        showLabel(event);
+      } else if (event.status) {
+        c.velma = { state: event.status, detail: event.note || "" };
+        const title = t.velmaStatus[event.status] || event.status;
+        logEvent(event.status === "listening" ? "velma" : "error", event.note ? `${title}: ${event.note}` : title);
       }
     });
   }
@@ -794,6 +1090,7 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
     conv = c;
     els.button.disabled = true;
     setControlsDisabled(true);
+    els.log.innerHTML = "";
     startLoop();
 
     // Сначала микрофон: если доступа нет, комнату и агента не заводим зря.
@@ -918,6 +1215,7 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
       }
       c.muted = !c.muted;
       c.silentSince = 0;
+      logEvent("mic", c.muted ? t.micMutedLog : t.micUnmutedLog);
     } catch (err) {
       console.error(err);
     }
@@ -932,6 +1230,15 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
       console.error(err);
     }
     c.playbackBlocked = !c.room.canPlaybackAudio;
+  });
+
+  els.dev.addEventListener("click", (e) => {
+    const button = e.target.closest("button[data-mood]");
+    const c = conv;
+    if (!button || !c || !c.room || !c.connected) return;
+    c.room.localParticipant
+      .sendText(`mood:${button.dataset.mood}`, { topic: TOPICS.control })
+      .catch(console.error);
   });
 
   for (const el of [els.model, els.character, els.voice, els.prompt]) {

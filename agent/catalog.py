@@ -40,6 +40,12 @@ particular conversation in mind and build on it. Always speak English.
 
 Speak in short, conversational turns, the way people talk out loud, not in paragraphs.
 Leave room for the person to jump in and interrupt you.
+
+You hear more than words. Now and then a system note tells you that the person's voice
+sounds angry or sad, or that they have just said so. When you get such a note, or when the
+person says they are angry or sad, briefly acknowledge it and ask what's behind it, in one
+short question, before anything else. Don't diagnose, don't lecture. If you already asked
+and they haven't answered yet, don't ask again.
 """.strip()
 
 CHARACTERS = {
