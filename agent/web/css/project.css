@@ -14,8 +14,13 @@
 }
 
 :root {
+  /* Палитра эмоций Modulate: шесть цветных семейств и серое для neutral/other/unknown. */
   --emma-mood-neutral: rgb(97, 97, 118);
   --emma-mood-angry: rgb(238, 64, 86);
+  --emma-mood-disgusted: rgb(219, 68, 124);
+  --emma-mood-afraid: rgb(209, 91, 162);
+  --emma-mood-surprised: rgb(228, 99, 130);
+  --emma-mood-happy: rgb(248, 106, 86);
   --emma-mood-sad: rgb(0, 120, 200);
   --emma-mood: var(--emma-mood-neutral);
   transition: --emma-mood 0.8s var(--ids__easing-base);
@@ -25,8 +30,30 @@
   --emma-mood: var(--emma-mood-angry);
 }
 
+:root[data-mood="disgusted"] {
+  --emma-mood: var(--emma-mood-disgusted);
+}
+
+:root[data-mood="afraid"] {
+  --emma-mood: var(--emma-mood-afraid);
+}
+
+:root[data-mood="surprised"] {
+  --emma-mood: var(--emma-mood-surprised);
+}
+
+:root[data-mood="happy"] {
+  --emma-mood: var(--emma-mood-happy);
+}
+
 :root[data-mood="sad"] {
   --emma-mood: var(--emma-mood-sad);
+}
+
+:root[data-mood="neutral"],
+:root[data-mood="other"],
+:root[data-mood="unknown"] {
+  --emma-mood: var(--emma-mood-neutral);
 }
 
 .emma {
@@ -116,12 +143,8 @@
   color: var(--ids__text);
 }
 
-.emma__log-line[data-mood="angry"] {
-  color: var(--emma-mood-angry);
-}
-
-.emma__log-line[data-mood="sad"] {
-  color: var(--emma-mood-sad);
+.emma__log-line[data-mood] {
+  color: var(--mood);
 }
 
 .emma__log-line[data-kind="error"] {
@@ -696,22 +719,53 @@
   cursor: help;
 }
 
-.emma__chip[data-mood="angry"] {
-  --chip: var(--emma-mood-angry);
+.emma__chip[data-mood] {
+  --chip: var(--mood);
 }
 
-.emma__chip[data-mood="sad"] {
-  --chip: var(--emma-mood-sad);
+/* Цвет семейства для плашек и строк лога; серые семейства — цвет подписей. */
+.emma__chip[data-mood="angry"],
+.emma__log-line[data-mood="angry"] {
+  --mood: var(--emma-mood-angry);
+}
+
+.emma__chip[data-mood="disgusted"],
+.emma__log-line[data-mood="disgusted"] {
+  --mood: var(--emma-mood-disgusted);
+}
+
+.emma__chip[data-mood="afraid"],
+.emma__log-line[data-mood="afraid"] {
+  --mood: var(--emma-mood-afraid);
+}
+
+.emma__chip[data-mood="surprised"],
+.emma__log-line[data-mood="surprised"] {
+  --mood: var(--emma-mood-surprised);
+}
+
+.emma__chip[data-mood="happy"],
+.emma__log-line[data-mood="happy"] {
+  --mood: var(--emma-mood-happy);
+}
+
+.emma__chip[data-mood="sad"],
+.emma__log-line[data-mood="sad"] {
+  --mood: var(--emma-mood-sad);
+}
+
+.emma__chip[data-mood="neutral"],
+.emma__chip[data-mood="other"],
+.emma__chip[data-mood="unknown"],
+.emma__log-line[data-mood="neutral"],
+.emma__log-line[data-mood="other"],
+.emma__log-line[data-mood="unknown"] {
+  --mood: var(--ids__text-caption);
 }
 
 .emma__chip small {
   font-weight: 400;
   opacity: 0.9;
-}
-
-.emma__chip--outline {
-  background: transparent;
-  color: var(--chip);
 }
 
 .emma__chip--faint {

@@ -4,12 +4,13 @@
 входящие настройки; воркер берёт отсюда промты характеров. Чтобы добавить
 модель, характер или голос — правь только этот файл."""
 
-# Модели — идентификаторы OpenRouter.
+# Модели — идентификаторы LiveKit Inference (docs.livekit.io/agents/models/inference).
+# Claude через LiveKit Inference недоступен, поэтому его в списке нет.
 MODELS = [
-    ("anthropic/claude-sonnet-5", "Claude Sonnet 5"),
-    ("anthropic/claude-opus-5", "Claude Opus 5"),
     ("openai/gpt-5.5", "GPT-5.5"),
+    ("openai/gpt-5.4-mini", "GPT-5.4 mini"),
     ("google/gemini-3.1-pro-preview", "Gemini 3.1 Pro"),
+    ("google/gemma-4-31b-it", "Gemma 4 31B"),
 ]
 DEFAULT_MODEL = MODELS[0][0]
 
@@ -41,11 +42,13 @@ particular conversation in mind and build on it. Always speak English.
 Speak in short, conversational turns, the way people talk out loud, not in paragraphs.
 Leave room for the person to jump in and interrupt you.
 
-You hear more than words. Now and then a system note tells you that the person's voice
-sounds angry or sad, or that they have just said so. When you get such a note, or when the
-person says they are angry or sad, briefly acknowledge it and ask what's behind it, in one
-short question, before anything else. Don't diagnose, don't lecture. If you already asked
-and they haven't answered yet, don't ask again.
+You hear more than words. Now and then a system note tells you how the person's voice
+sounds (angry, frustrated, sad, anxious, happy and so on) or that they have just said how
+they feel. If it is anger, sadness, fear or disgust, briefly acknowledge it and ask what's
+behind it, in one short question, before anything else. If it is joy or surprise, let it
+color your tone; no question needed. If the voice and the words disagree, you may gently
+name that, in passing. Don't diagnose, don't lecture. If you already asked and they haven't
+answered yet, don't ask again.
 """.strip()
 
 CHARACTERS = {

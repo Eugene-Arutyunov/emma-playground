@@ -33,7 +33,7 @@ LIVEKIT_API_SECRET = os.environ["LIVEKIT_API_SECRET"]
 
 # Прототип закрытый, только для команды: страница, каталог и выдача токенов
 # доступны только после входа, чтобы случайный человек со ссылкой не тратил
-# баланс OpenRouter и Cartesia. Вход — своя страница /login (окно HTTP Basic
+# баланс LiveKit и Cartesia. Вход — своя страница /login (окно HTTP Basic
 # Auth браузер рисует сам, и оформить его нельзя); после входа сервер ставит
 # подписанную cookie сессии.
 AUTH_USER = os.environ["EMMA_AUTH_USER"]

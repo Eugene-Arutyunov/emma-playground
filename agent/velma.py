@@ -7,8 +7,9 @@ answers with two kinds of things we use:
 - an acoustic emotion label per utterance: how it was said, not what was said
   (`partial_clip` while the person is still talking, `clip` when the utterance
   is final, `clip_update` when the label is refined);
-- detections of the two custom behaviors below: what was said, judged by Velma
-  over the transcript, with a confidence and a one-line reasoning.
+- detections of the six custom behaviors below ("Says They Are Angry" and so
+  on): what was said, judged by Velma over the transcript, with a confidence
+  and a one-line reasoning.
 
 Everything else Velma can produce (topics, summary, roles, conversation type)
 is switched off in the config. Protocol: docs.modulate.ai/api-reference/velma/streaming.
@@ -60,57 +61,81 @@ FATAL_CLOSE_CODES = {
     4031: "monthly usage limit reached",
 }
 
-# Behaviors are identified by these UUIDs in Velma's detections; keep them stable.
-ANGRY_BEHAVIOR_UUID = "b178304c-b5d8-41d0-bc4c-aebbe738f17a"
-SAD_BEHAVIOR_UUID = "8a608e35-655b-4495-a67e-48f4aae093f4"
+# Velma's 26 streaming labels folded into Modulate's nine emotion families
+# (the palette of the batch endpoint: angry, disgusted, afraid, surprised, happy,
+# sad, neutral, other, unknown). The chip on the page keeps the original label;
+# the family picks the color, the signal and Emma's reaction. A label that is
+# not listed here (a new one, for instance) lands in "unknown".
+FAMILY_NAMES = ("angry", "disgusted", "afraid", "surprised", "happy", "sad", "neutral", "other", "unknown")
+GRAY_FAMILIES = frozenset({"neutral", "other", "unknown"})
+FAMILIES = {
+    "angry": ("Angry", "Frustrated", "Contemptuous"),
+    "disgusted": ("Disgusted",),
+    "afraid": ("Afraid", "Anxious", "Stressed", "Concerned"),
+    "surprised": ("Surprised",),
+    "happy": ("Happy", "Amused", "Excited", "Proud", "Affectionate", "Hopeful", "Relieved", "Confident"),
+    "sad": ("Sad", "Disappointed", "Ashamed"),
+    "neutral": ("Neutral", "Calm"),
+    "other": ("Interested", "Bored", "Tired", "Confused"),
+}
+_FAMILY_OF_LABEL = {label.lower(): family for family, labels in FAMILIES.items() for label in labels}
+
+
+def family_of(label: str | None) -> str:
+    return _FAMILY_OF_LABEL.get((label or "").strip().lower(), "unknown")
+
+
+# One "Says They Are …" behavior per colored family. Velma identifies behaviors
+# by these UUIDs in its detections; keep them stable.
+BEHAVIOR_UUIDS = {
+    "angry": "b178304c-b5d8-41d0-bc4c-aebbe738f17a",
+    "disgusted": "ef16626a-fa1e-5e98-a453-acb4745bfa0b",
+    "afraid": "707a6c55-7d3d-5a4b-bf30-cb3ca002555c",
+    "surprised": "e88e122b-1c0e-595d-98c1-6cf8bb2169e6",
+    "happy": "3d912c51-174e-5766-9dad-32a2b6d93ccc",
+    "sad": "8a608e35-655b-4495-a67e-48f4aae093f4",
+}
 
 # Written the way Modulate's guide asks: criteria rather than examples, plus
 # explicit "do not flag" rules. `trigger_limit: None` means every occurrence is
 # reported, not only the first one per speaker.
-BEHAVIORS = [
-    {
-        "behavior_uuid": ANGRY_BEHAVIOR_UUID,
-        "name": "Says They Are Angry",
-        "short_description": "The speaker states in the first person that they are angry right now.",
+_SAYS = {
+    # family: (the state as a noun, words that name it, the word used about a thing instead)
+    "angry": ("anger", "angry, mad, furious, pissed off, livid, enraged", "this traffic is mad"),
+    "disgusted": ("disgust", "disgusted, grossed out, repulsed, revolted, sick of it", "that's disgusting"),
+    "afraid": ("fear", "afraid, scared, frightened, terrified, worried, anxious, nervous, panicking", "a scary film"),
+    "surprised": ("surprise", "surprised, shocked, stunned, can't believe it, did not expect that", "a surprising result"),
+    "happy": ("happiness", "happy, glad, delighted, thrilled, excited, cheerful, in a great mood, over the moon", "a happy ending"),
+    "sad": ("sadness", "sad, upset, down, depressed, heartbroken, miserable, unhappy, feel like crying", "that film is sad"),
+}
+
+
+def _behavior(family: str) -> dict:
+    noun, words, about_a_thing = _SAYS[family]
+    return {
+        "behavior_uuid": BEHAVIOR_UUIDS[family],
+        "name": f"Says They Are {family.capitalize()}",
+        "short_description": f"The speaker states in the first person that they are {family} right now.",
         "detailed_description": (
             "This behavior is present if the speech meets ALL of the following criteria: "
-            "the speaker attributes a state of anger to themselves in the first person, with a "
-            "predicate adjective or verb phrase for anger (angry, mad, furious, pissed off, "
-            "livid, enraged, or the equivalent in the speaker's language); "
-            "the state is presented as current, in the present tense or with a marker such as "
-            "'right now' or 'today'; "
-            "the statement is about the speaker's own feeling, not a report of someone else's. "
-            "Do NOT flag if: the statement is negated ('I'm not angry'); the anger is attributed "
-            "to a third party or quoted from someone else; the statement is hypothetical or "
-            "conditional ('I would be angry if'); the speaker describes a past episode in the "
-            "past tense; the word is used as an intensifier about something else rather than "
-            "the speaker's state ('this traffic is mad')."
-        ),
-        "trigger_limit": None,
-    },
-    {
-        "behavior_uuid": SAD_BEHAVIOR_UUID,
-        "name": "Says They Are Sad",
-        "short_description": "The speaker states in the first person that they are sad right now.",
-        "detailed_description": (
-            "This behavior is present if the speech meets ALL of the following criteria: "
-            "the speaker attributes a state of sadness to themselves in the first person, with a "
-            "predicate adjective or verb phrase for sadness (sad, upset, down, depressed, "
-            "heartbroken, miserable, unhappy, feel like crying, or the equivalent in the "
+            f"the speaker attributes a state of {noun} to themselves in the first person, with a "
+            f"predicate adjective or verb phrase for {noun} ({words}, or the equivalent in the "
             "speaker's language); "
             "the state is presented as current, in the present tense or with a marker such as "
             "'right now', 'today' or 'lately'; "
             "the statement is about the speaker's own feeling, not a report of someone else's. "
-            "Do NOT flag if: the statement is negated ('I'm not sad'); the sadness is attributed "
+            f"Do NOT flag if: the statement is negated ('I'm not {family}'); the {noun} is attributed "
             "to a third party or quoted from someone else; the statement is hypothetical or "
-            "conditional ('I would be sad if'); the speaker describes a past episode in the past "
-            "tense; the word describes a thing rather than the speaker's state ('that film is "
-            "sad')."
+            f"conditional ('I would be {family} if'); the speaker describes a past episode in the "
+            "past tense; the word describes a thing rather than the speaker's state "
+            f"('{about_a_thing}')."
         ),
         "trigger_limit": None,
-    },
-]
-BEHAVIOR_MOODS = {ANGRY_BEHAVIOR_UUID: "angry", SAD_BEHAVIOR_UUID: "sad"}
+    }
+
+
+BEHAVIORS = [_behavior(family) for family in _SAYS]
+BEHAVIOR_MOODS = {BEHAVIOR_UUIDS[family]: family for family in _SAYS}
 
 CONFIG = {
     "behaviors": BEHAVIORS,
@@ -142,6 +167,8 @@ class VelmaBehavior:
     detected: bool
     confidence: float | None
     reasoning: str
+    clip_uuid: str  # the clip Velma points to as the definitive evidence
+    evidence: list[str]
     at: float
 
 
@@ -327,6 +354,8 @@ class VelmaStream:
                     detected=bool(d.get("detected")),
                     confidence=d.get("confidence"),
                     reasoning=d.get("reasoning") or "",
+                    clip_uuid=d.get("definitive_clip_uuid") or next(iter(d.get("evidence_clip_uuids") or []), ""),
+                    evidence=list(d.get("evidence_clip_uuids") or []),
                     at=now,
                 )
             )

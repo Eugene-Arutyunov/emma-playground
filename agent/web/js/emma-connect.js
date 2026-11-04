@@ -8,7 +8,17 @@ const t = {
   averageReply: "average reply",
   mute: "Mute",
   unmute: "Unmute",
-  mood: { angry: "Angry", sad: "Sad" },
+  mood: {
+    angry: "Angry",
+    disgusted: "Disgusted",
+    afraid: "Afraid",
+    surprised: "Surprised",
+    happy: "Happy",
+    sad: "Sad",
+    neutral: "Neutral",
+    other: "Other",
+    unknown: "Unknown",
+  },
   source: { voice: "voice", words: "words", test: "test" },
   heardInVoice: "Velma heard it in the voice",
   saidInWords: "Said in words",
@@ -16,8 +26,7 @@ const t = {
   afterYouStopped: "after you stopped",
   whileTalking: "while you were still talking",
   velmaHeard: "Velma's transcript",
-  velmaLabel: "Velma label",
-  voiceWins: (voice) => `the voice said ${voice}, so the voice wins`,
+  family: "family",
   velmaStatus: { listening: "Velma is listening", retrying: "Velma is reconnecting", off: "Velma is off" },
   micMutedLog: "Microphone muted",
   micUnmutedLog: "Microphone unmuted",
@@ -149,7 +158,6 @@ const SETTINGS_STORAGE_KEY = "emma-settings";
 
 const TOPICS = {
   transcription: "lk.transcription",
-  signals: "emma.signals",
   summary: "emma.summary",
   control: "emma.control",
   status: "emma.status",
@@ -171,6 +179,8 @@ const HEARING_HOLD_MS = 1500;
 const RETRY_HOLD_MS = 8000;
 // Сколько держатся цвет и ярлык настроения после сигнала; новый сигнал продлевает.
 const MOOD_HOLD_MS = 5000;
+// Семейства без цвета: бледная плашка, ярлык без перекраски.
+const GRAY_MOODS = new Set(["neutral", "other", "unknown"]);
 // ?dev в адресе показывает кнопки, которые шлют воркеру тестовый сигнал настроения.
 const DEV = new URLSearchParams(location.search).has("dev");
 
@@ -584,9 +594,22 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
     return entries[entries.length - 1] || null;
   }
 
-  // Плашка на реплике: цветная для сигнала, бледная для любой другой метки
-  // Velma. Ключ — клип Velma или источник со временем: метки одного клипа
-  // (partial → final → update) обновляют одну плашку, а не плодят новые.
+  // Реплика в транскрипте по клипу Velma: первый сигнал по клипу (обычно по
+  // голосу, пока человек ещё говорит) запоминает реплику, и более поздние сигналы
+  // по тому же клипу, например по словам через несколько секунд, встают на неё же.
+  const entryByClip = new Map();
+
+  function entryForClip(clip) {
+    const known = clip && entryByClip.get(clip);
+    if (known && known.isConnected) return known;
+    const entry = lastUserEntry();
+    if (clip && entry) entryByClip.set(clip, entry);
+    return entry;
+  }
+
+  // Плашка на реплике: в цвет семейства эмоции, бледная для серых семейств
+  // (neutral, other, unknown). Ключ — клип Velma или источник со временем: метки
+  // одного клипа (partial → final → update) обновляют одну плашку, а не плодят новые.
   function setChip(entry, key, chip) {
     let chips = entry.querySelector(".emma__chips");
     if (!chips) {
@@ -595,11 +618,6 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
       entry.append(chips);
     }
     let el = chips.querySelector(`[data-key="${CSS.escape(key)}"]`);
-    if (el && el.dataset.mood && chip.faint) {
-      // Сигнал уже стоит на этом клипе: окончательная метка только дописывается в подсказку
-      el.title = `${el.title}\n${chip.title}`;
-      return;
-    }
     if (!el) {
       el = document.createElement("span");
       el.dataset.key = key;
@@ -607,7 +625,6 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
     }
     el.className = "emma__chip emma__chip--new";
     if (chip.faint) el.classList.add("emma__chip--faint");
-    if (chip.outline) el.classList.add("emma__chip--outline");
     if (chip.mood) el.dataset.mood = chip.mood;
     else delete el.dataset.mood;
     el.textContent = chip.text;
@@ -621,20 +638,24 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
   }
 
   // Сигнал настроения: цвет и ярлык на несколько секунд, плашка на реплике,
-  // которая его вызвала, строка в логе. Если голос сказал другое, плашка слов
-  // рисуется контуром, а интерфейс не красится: голос важнее слов.
+  // которая его вызвала, строка в логе. Голос и слова — две отдельные плашки
+  // на одной реплике, даже если назвали разное. Серые семейства красят бледно
+  // и ничего не перекрашивают. Плашка голоса показывает исходную метку Velma
+  // (Frustrated), цвет и сигнал задаёт её семейство (angry).
   function showMood(event) {
     const name = t.mood[event.mood];
     if (!name) return;
     const source = t.source[event.source] || event.source;
-    const overruled = event.overruled;
-    if (!overruled) mood.show(event.mood, `${name} · ${source}`);
+    const label = event.source === "voice" ? event.label || name : name;
+    const key =
+      event.source === "voice" && event.clip ? event.clip : `${event.source}-${event.mood}-${event.clip || event.at}`;
     const hasDelay = typeof event.delay === "number";
     const when = hasDelay ? `${seconds(event.delay)} ${t.afterYouStopped}` : t.whileTalking;
     const small = [source];
     let title = event.note || "";
     if (event.source === "voice") {
-      title = `${t.heardInVoice}: ${event.label || name} (${event.stage || "final"}), ${when}.`;
+      title = `${t.heardInVoice}: ${label} (${event.stage || "final"}), ${when}.`;
+      if (label !== name) title += `\n${t.family}: ${name}`;
       if (event.text) title += `\n${t.velmaHeard}: “${event.text}”`;
     } else if (event.source === "words") {
       const confidence = typeof event.confidence === "number" ? event.confidence.toFixed(2) : "";
@@ -642,37 +663,28 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
       title = `${t.saidInWords}${confidence ? ` · ${t.confidence} ${confidence}` : ""}, ${when}.`;
       if (event.note) title += `\n${event.note}`;
     }
-    if (overruled) title += `\n${t.voiceWins(overruled)}`;
-    const entry = lastUserEntry();
+    const entry = entryForClip(event.clip);
     if (entry) {
-      const key = event.source === "voice" && event.clip ? event.clip : `${event.source}-${event.at}`;
       setChip(entry, key, {
         mood: event.mood,
-        text: event.mood,
+        text: label,
         small: small.join(" · "),
         title,
-        outline: Boolean(overruled),
+        faint: GRAY_MOODS.has(event.mood),
       });
-    } else {
-      addEntry(els.transcript, "emma__signal", `${name} · ${source}`, event.note || "");
+    } else if (!event.repeat) {
+      addEntry(els.transcript, "emma__signal", `${label} · ${source}`, event.note || "");
     }
-    let line = `${event.mood} · ${source}`;
+    if (event.repeat) return; // метка уточнилась внутри семейства: только плашка
+    mood.show(event.mood, `${label} · ${source}`);
+    let line = label !== name ? `${event.mood} · ${label} · ${source}` : `${event.mood} · ${source}`;
     if (hasDelay) line += ` · +${seconds(event.delay)}`;
-    if (overruled) line += ` (${t.voiceWins(overruled)})`;
     logEvent("signal", line, event.mood);
-  }
-
-  // Любая другая метка Velma: бледная плашка на последней реплике и строка в логе
-  function showLabel(event) {
-    const entry = lastUserEntry();
-    let title = `${t.velmaLabel}: ${event.label} (${event.stage})`;
-    if (event.text) title += `\n${t.velmaHeard}: “${event.text}”`;
-    if (entry) setChip(entry, event.clip || `label-${event.at}`, { text: event.label, title, faint: true });
-    logEvent("velma", `${t.velmaLabel}: ${event.label} (${event.stage})`);
   }
 
   function resetPanels() {
     segments.clear();
+    entryByClip.clear();
     emmaEntries.length = 0;
     els.transcript.innerHTML = "";
   }
@@ -1003,16 +1015,6 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
       }
     });
 
-    room.registerTextStreamHandler(TOPICS.signals, async (reader) => {
-      const raw = await reader.readAll();
-      try {
-        const signal = JSON.parse(raw);
-        addEntry(els.transcript, "emma__signal", signal.signal, signal.note);
-      } catch (err) {
-        console.error("bad signal payload", raw, err);
-      }
-    });
-
     room.registerTextStreamHandler(TOPICS.summary, async (reader) => {
       const text = await reader.readAll();
       if (text) {
@@ -1069,8 +1071,6 @@ const AGENT_LIVE_STATES = ["idle", "listening", "thinking", "speaking"];
       }
       if (event.mood) {
         showMood(event);
-      } else if (event.label) {
-        showLabel(event);
       } else if (event.status) {
         c.velma = { state: event.status, detail: event.note || "" };
         const title = t.velmaStatus[event.status] || event.status;

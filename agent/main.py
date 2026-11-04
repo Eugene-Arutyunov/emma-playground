@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import os
-import re
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -23,29 +22,29 @@ from livekit.agents import (
     llm,
 )
 from livekit.agents.voice.events import ConversationItemAddedEvent, ErrorEvent, UserStateChangedEvent
-from livekit.plugins import cartesia, deepgram, openai, silero
+from livekit.plugins import cartesia, deepgram, silero
 
-from catalog import CHARACTERS, DEFAULT_CHARACTER, DEFAULT_MODEL, DEFAULT_VOICE
+from catalog import CHARACTERS, DEFAULT_CHARACTER, DEFAULT_MODEL, DEFAULT_VOICE, MODELS
 from velma import (
     BEHAVIOR_MOODS,
     DEFAULT_URL as VELMA_DEFAULT_URL,
+    FAMILY_NAMES,
+    GRAY_FAMILIES,
     VelmaBehavior,
     VelmaEmotion,
     VelmaEvent,
     VelmaStatus,
     VelmaStream,
+    family_of,
 )
 
 load_dotenv()
 logger = logging.getLogger("emma")
 
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-REFLECTION_MODEL = os.getenv("EMMA_REFLECTION_MODEL", "anthropic/claude-haiku-4.5")
 TRANSCRIPTS_DIR = Path(os.getenv("EMMA_TRANSCRIPTS_DIR", "transcripts"))
 
 # Текстовые потоки между воркером и страницей. Транскрипт речи LiveKit
 # публикует сам в топике "lk.transcription".
-TOPIC_SIGNALS = "emma.signals"
 TOPIC_SUMMARY = "emma.summary"
 TOPIC_CONTROL = "emma.control"
 # Сбои звеньев конвейера (распознавание, модель, голос) — чтобы страница
@@ -62,22 +61,17 @@ TOPIC_LATENCY = "emma.latency"
 TOPIC_EMOTION = "emma.emotion"
 
 VELMA_URL = os.getenv("VELMA_STREAMING_URL", VELMA_DEFAULT_URL)
-# Акустические метки Velma, которые считаем сигналами. Строго: только эти две,
-# остальные метки пишутся в транскрипт для оценки, но ничего не запускают.
-EMOTION_MOODS = {"angry": "angry", "sad": "sad"}
 # Заметка для модели ждёт следующей реплики собеседника не дольше этого (секунды)...
 MOOD_NOTE_MAX_AGE = 45.0
 # ...а одно настроение в этом окне считается одним эпизодом: одна заметка, один вопрос.
 MOOD_EPISODE_S = 60.0
+# Фразы по источнику сигнала; take_note склеивает их в одну системную заметку,
+# так что голос и слова попадают к модели вместе, даже если называют разное.
 MOOD_NOTE = {
-    "voice": "System note: the person's voice sounds {mood} right now, whatever their words say.",
-    "words": "System note: the person has just said they are {mood}. {reason}",
-    "test": "System note: the person sounds {mood} right now.",
+    "voice": "The person's voice sounds {what} right now.",
+    "words": "The person has just said they are {mood}. {reason}",
+    "test": "The person sounds {mood} right now.",
 }
-# Голос важнее слов: детекция по словам, пришедшая в это окно после голосовой
-# метки с другим настроением, остаётся отметкой на реплике, но интерфейс не
-# красит и вопроса у Эммы не вызывает.
-VOICE_WINS_S = 20.0
 
 
 def latency_report(assistant_metrics: Mapping, user_metrics: Mapping) -> dict | None:
@@ -93,14 +87,6 @@ def latency_report(assistant_metrics: Mapping, user_metrics: Mapping) -> dict | 
     return {key: round(value, 2) for key, value in parts.items() if value is not None}
 
 GREETING = "Say hello in one short sentence and ask what the person would like to talk about."
-
-REFLECTION_INSTRUCTIONS = """You are the second, observing channel of the voice companion Emma. You do
-not take part in the conversation. Your job is to notice signals in the person's
-latest turns: emotional state, a contradiction with what they said earlier, an
-unasked question, a change of subject, fatigue, doubt, going in circles.
-
-Return a JSON array of 0–2 objects like {"signal": "<2–4 words>", "note": "<one
-sentence>"}, written in English. If nothing notable — return []. JSON only, no commentary."""
 
 SUMMARY_INSTRUCTIONS = """The conversation is over. Write a short wrap-up for the person in Emma's
 voice, in English: what you talked about, where you landed, what is still open.
@@ -118,8 +104,14 @@ class SessionConfig:
 
     @classmethod
     def from_attributes(cls, attrs: Mapping[str, str]) -> "SessionConfig":
+        model = attrs.get("emma.model") or DEFAULT_MODEL
+        if model not in {id for id, _ in MODELS}:
+            # Страница со старым каталогом в кэше может прислать модель, которой
+            # больше нет (например, из времён OpenRouter): берём модель по умолчанию.
+            logger.warning("unknown model %r requested, using %s", model, DEFAULT_MODEL)
+            model = DEFAULT_MODEL
         return cls(
-            model=attrs.get("emma.model") or DEFAULT_MODEL,
+            model=model,
             character=attrs.get("emma.character") or DEFAULT_CHARACTER,
             voice=attrs.get("emma.voice") or DEFAULT_VOICE,
             prompt=(attrs.get("emma.prompt") or "").strip(),
@@ -134,20 +126,15 @@ def build_instructions(cfg: SessionConfig) -> str:
     return instructions
 
 
-# Потолок длины ответа. Реплики в голосе короткие, а без потолка OpenRouter
-# резервирует под ответ максимум модели (десятки тысяч токенов) и отказывает
-# с 402, когда лимит ключа или баланс меньше этого резерва.
+# Потолок длины ответа: реплики в голосе короткие, монолог на тысячи токенов
+# никому не нужен и стоит денег.
 REPLY_MAX_TOKENS = 800
-REFLECTION_MAX_TOKENS = 300
 
 
-def openrouter_llm(model: str, max_tokens: int = REPLY_MAX_TOKENS) -> openai.LLM:
-    return openai.LLM(
-        model=model,
-        base_url=OPENROUTER_BASE_URL,
-        api_key=os.environ["OPENROUTER_API_KEY"],
-        max_completion_tokens=max_tokens,
-    )
+def inference_llm(model: str, max_tokens: int = REPLY_MAX_TOKENS) -> inference.LLM:
+    """Языковая модель через LiveKit Inference: оплачивается в LiveKit Cloud теми же
+    ключами, что и комнаты, отдельный провайдер и ключ не нужны."""
+    return inference.LLM(model=model, extra_kwargs={"max_completion_tokens": max_tokens})
 
 
 async def complete(model: llm.LLM, instructions: str, user_text: str) -> str:
@@ -162,29 +149,12 @@ async def complete(model: llm.LLM, instructions: str, user_text: str) -> str:
     return "".join(parts).strip()
 
 
-def parse_signals(text: str) -> list[dict]:
-    text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.M).strip()
-    start, end = text.find("["), text.rfind("]")
-    if start < 0 or end < 0:
-        return []
-    try:
-        data = json.loads(text[start : end + 1])
-    except json.JSONDecodeError:
-        return []
-    return [
-        {"signal": str(s["signal"]).strip(), "note": str(s["note"]).strip()}
-        for s in data
-        if isinstance(s, dict) and s.get("signal") and s.get("note")
-    ]
-
-
 class Conversation:
     def __init__(self, room_name: str, cfg: SessionConfig, session: AgentSession) -> None:
         self.room_name = room_name
         self.cfg = cfg
         self.session = session
         self.started_at = time.time()
-        self.signals: list[dict] = []
         self.moods: list[dict] = []
         # Всё, что услышала Velma, не только злость и грусть: для оценки её меток.
         self.velma_clips: dict[str, dict] = {}
@@ -217,7 +187,6 @@ class Conversation:
             "ended_at": time.time(),
             "config": asdict(self.cfg),
             "turns": self.turns(),
-            "signals": self.signals,
             "moods": self.moods,
             "velma": {"clips": list(self.velma_clips.values()), "behaviors": self.behaviors},
             "summary": self.summary,
@@ -234,53 +203,21 @@ class Conversation:
         logger.info("transcript %s", json.dumps(data, ensure_ascii=False))
 
 
-class Reflector:
-    """Второй канал: после каждой реплики собеседника смотрит на последние
-    ходы разговора и отправляет на страницу 0–2 наблюдения."""
-
-    def __init__(self, room: rtc.Room, conversation: Conversation, model: llm.LLM) -> None:
-        self._room = room
-        self._conversation = conversation
-        self._model = model
-        self._busy = False
-
-    async def observe(self) -> None:
-        if self._busy:
-            return
-        self._busy = True
-        try:
-            turns = self._conversation.turns()[-10:]
-            if not any(t["role"] == "user" for t in turns):
-                return
-            text = "\n".join(f"{SPEAKER[t['role']]}: {t['text']}" for t in turns if t["text"])
-            raw = await complete(self._model, REFLECTION_INSTRUCTIONS, text)
-            for signal in parse_signals(raw)[:2]:
-                signal["at"] = time.time()
-                self._conversation.signals.append(signal)
-                await self._room.local_participant.send_text(
-                    json.dumps(signal, ensure_ascii=False), topic=TOPIC_SIGNALS
-                )
-        except Exception:
-            logger.exception("reflection failed")
-        finally:
-            self._busy = False
-
-
 class Mood:
-    """Превращает метки и детекции Velma в два сигнала Эммы, злость и грусть:
-    сообщает странице, пишет в транскрипт и оставляет заметку для следующего
-    ответа Эммы, чтобы она спросила, что случилось."""
+    """Превращает метки и детекции Velma в сигналы Эммы: семейство эмоции по
+    голосу и по словам, на одной реплике могут стоять оба. Сообщает странице,
+    пишет в транскрипт и оставляет заметку для следующего ответа Эммы."""
 
     def __init__(self, room: rtc.Room, conversation: Conversation, speech_end: Callable[[], float]) -> None:
         self._room = room
         self._conversation = conversation
         self._speech_end = speech_end
-        # Какое настроение уже отправлено по клипу: partial, final и update одной
-        # реплики дают одну метку, а не три сигнала.
-        self._signaled: dict[str, str] = {}
-        self._voice: tuple[str, float] | None = None
-        self._note: tuple[str, str, float] | None = None
-        self._last_asked: tuple[str, float] | None = None
+        # Что уже отправлено по клипу, (семейство, метка): partial, final и update
+        # одной реплики дают один сигнал, пока семейство не меняется.
+        self._signaled: dict[str, tuple[str, str]] = {}
+        # Заметки для модели по источникам: голос и слова живут рядом, не спорят.
+        self._notes: dict[str, tuple[str, str, float]] = {}
+        self._last_asked: dict[str, float] = {}
 
     def on_velma(self, ev: VelmaEvent) -> None:
         if isinstance(ev, VelmaEmotion):
@@ -289,24 +226,29 @@ class Mood:
                 clip["text"] = ev.text
             clip.update({"emotion": ev.label, "stage": ev.stage, "at": ev.at})
             label = ev.label or ""
-            mood = EMOTION_MOODS.get(label.lower())
-            if mood:
-                if self._signaled.get(ev.clip_uuid) != mood:
-                    self._signaled[ev.clip_uuid] = mood
-                    self.signal(
-                        mood, "voice", label=label, stage=ev.stage, clip=ev.clip_uuid, text=clip.get("text", "")
-                    )
-            elif label and ev.stage != "partial":
-                # Остальные метки не сигналы, но страница показывает их на реплике
-                # бледной плашкой: видно, что Velma слышит на каждой фразе.
-                self._send(
-                    {"label": label, "stage": ev.stage, "clip": ev.clip_uuid, "text": clip.get("text", ""), "at": ev.at}
-                )
+            previous = self._signaled.get(ev.clip_uuid)
+            if not label and (ev.stage != "final" or previous):
+                return  # ещё нет метки, или по клипу уже есть
+            # Готовый клип без метки получает "unknown": на каждом клипе есть оценка по голосу.
+            mood = family_of(label)
+            clip["mood"] = mood
+            if previous == (mood, label):
+                return
+            self._signaled[ev.clip_uuid] = (mood, label)
+            details = {"label": label, "stage": ev.stage, "clip": ev.clip_uuid, "text": clip.get("text", "")}
+            if previous and previous[0] == mood:
+                # Метка уточнилась внутри семейства: страница обновит плашку, без нового сигнала.
+                self._send({"mood": mood, "source": "voice", "repeat": True, "at": ev.at, **details})
+            else:
+                self.signal(mood, "voice", **details)
         elif isinstance(ev, VelmaBehavior):
             self._conversation.behaviors.append(asdict(ev))
             mood = BEHAVIOR_MOODS.get(ev.behavior_uuid)
             if mood and ev.detected:
-                self.signal(mood, "words", note=ev.reasoning, confidence=ev.confidence)
+                clip = self._conversation.velma_clips.get(ev.clip_uuid, {})
+                self.signal(
+                    mood, "words", note=ev.reasoning, confidence=ev.confidence, clip=ev.clip_uuid, text=clip.get("text", "")
+                )
         elif isinstance(ev, VelmaStatus):
             logger.info("velma %s %s", ev.state, ev.detail)
             self._send({"status": ev.state, "note": ev.detail})
@@ -317,28 +259,28 @@ class Mood:
         end = self._speech_end()
         if end and 0 <= now - end < 30:
             payload["delay"] = round(now - end, 2)
-        if source == "voice":
-            self._voice = (mood, now)
-        elif source == "words" and self._voice and self._voice[0] != mood and now - self._voice[1] < VOICE_WINS_S:
-            payload["overruled"] = self._voice[0]
         self._conversation.moods.append(payload)
         logger.info("mood signal: %s", payload)
         self._send(payload)
-        if "overruled" in payload:
-            return
-        if self._note is None:
-            asked = self._last_asked
-            if asked and asked[0] == mood and now - asked[1] < MOOD_EPISODE_S:
-                return  # Эмма уже спрашивала про этот эпизод
-        self._note = (mood, MOOD_NOTE[source].format(mood=mood, reason=note).strip(), now)
+        if mood in GRAY_FAMILIES:
+            return  # нейтральное состояние: модели сообщать нечего
+        asked = self._last_asked.get(mood)
+        if asked and now - asked < MOOD_EPISODE_S:
+            return  # Эмма уже отреагировала на этот эпизод
+        what = str(extra.get("label") or mood).lower()
+        self._notes[source] = (mood, MOOD_NOTE[source].format(what=what, mood=mood, reason=note).strip(), now)
 
     def take_note(self) -> str | None:
-        """Заметка для модели перед её ответом: выдаётся один раз и только свежая."""
-        note, self._note = self._note, None
-        if note is None or time.time() - note[2] > MOOD_NOTE_MAX_AGE:
+        """Заметка для модели перед её ответом: выдаётся один раз и только свежая.
+        Голос и слова склеиваются в одну заметку, даже если называют разное."""
+        notes, self._notes = self._notes, {}
+        now = time.time()
+        fresh = [n for n in notes.values() if now - n[2] <= MOOD_NOTE_MAX_AGE]
+        if not fresh:
             return None
-        self._last_asked = (note[0], time.time())
-        return note[1]
+        for mood, _, _ in fresh:
+            self._last_asked[mood] = now
+        return "System note: " + " ".join(text for _, text, _ in fresh)
 
     def _send(self, payload: dict) -> None:
         asyncio.create_task(
@@ -396,7 +338,7 @@ async def entrypoint(ctx: JobContext) -> None:
     conn = await tts._pool.get(timeout=10)
     tts._pool.put(conn)
 
-    main_llm = openrouter_llm(cfg.model)
+    main_llm = inference_llm(cfg.model)
     session = AgentSession(
         stt=deepgram.STT(model="nova-3", language="multi"),
         llm=main_llm,
@@ -412,7 +354,6 @@ async def entrypoint(ctx: JobContext) -> None:
     )
 
     conversation = Conversation(ctx.room.name, cfg, session)
-    reflector = Reflector(ctx.room, conversation, openrouter_llm(REFLECTION_MODEL, REFLECTION_MAX_TOKENS))
 
     # Когда собеседник замолчал: от этого момента считается, насколько Velma опаздывает.
     last_speech_end = 0.0
@@ -442,7 +383,6 @@ async def entrypoint(ctx: JobContext) -> None:
         if role == "user":
             last_user_metrics.clear()
             last_user_metrics.update(metrics)
-            asyncio.create_task(reflector.observe())
         elif role == "assistant":
             report = latency_report(metrics, last_user_metrics)
             if report:
@@ -488,7 +428,7 @@ async def entrypoint(ctx: JobContext) -> None:
             elif command.startswith("mood:"):
                 # Тестовые кнопки на странице (?dev): тот же путь, что у сигнала от Velma.
                 requested = command.removeprefix("mood:")
-                if requested in EMOTION_MOODS:
+                if requested in FAMILY_NAMES:
                     mood.signal(requested, "test", note="Triggered from the page")
 
         asyncio.create_task(handle())
